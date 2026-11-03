@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getSubscription, skipNextShipment } from "../api/mockApi";
 import { ApiError, type Subscription } from "../api/types";
 import { addDays, type SubscriptionPatch } from "./subscriptionChanges";
+import { withTimeout } from "./withTimeout";
 
 export type LoadError = "not-found" | "failed";
 
@@ -15,7 +16,7 @@ export function useSubscription() {
 
   useEffect(() => {
     let ignore = false;
-    getSubscription()
+    withTimeout(getSubscription())
       .then((loaded) => {
         if (!ignore) setServer(loaded);
       })

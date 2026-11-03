@@ -51,6 +51,7 @@ export function SubscriptionCard() {
     setNotice(pendingNotice);
   };
   const transition = { closing: closingDialog, onExited: handleExited };
+  const showLateSkip = (updated: Subscription) => setNotice(skipSuccessMessage(updated));
 
   return (
     <main className="mx-auto w-full max-w-lg px-4 py-6 sm:py-10">
@@ -111,6 +112,10 @@ export function SubscriptionCard() {
             track("skip_completed", { subscriptionId: updated.id, source: "page" });
             close(skipSuccessMessage(updated));
           }}
+          onSkippedAfterClose={(updated) => {
+            track("skip_completed", { subscriptionId: updated.id, source: "page" });
+            showLateSkip(updated);
+          }}
           transition={transition}
           onClose={() => close()}
         />
@@ -125,6 +130,7 @@ export function SubscriptionCard() {
             close(t("cancelOutcome.offerApplied", nextChargeValues({ ...subscription, ...patch })));
           }}
           onSkipped={(updated) => close(skipSuccessMessage(updated))}
+          onSkippedAfterClose={showLateSkip}
           onCancelled={() => {
             applyChange(cancelledPatch());
             close(t("cancelOutcome.cancelled"));
@@ -270,12 +276,13 @@ interface SkipDialogProps {
   subscription: Subscription;
   controls: SubscriptionControls;
   onSkipped: (updated: Subscription) => void;
+  onSkippedAfterClose: (updated: Subscription) => void;
   transition: DialogTransition;
   onClose: () => void;
 }
 
-function SkipDialog({ subscription, controls, onSkipped, transition, onClose }: SkipDialogProps) {
-  const skip = useSkipShipment(controls, onSkipped);
+function SkipDialog({ subscription, controls, onSkipped, onSkippedAfterClose, transition, onClose }: SkipDialogProps) {
+  const skip = useSkipShipment(subscription, controls, { onSkipped, onSkippedAfterClose });
   return (
     <Dialog title={t("skipConfirm.title")} busy={skip.busy} transition={transition} onClose={onClose}>
       <SkipPanel skip={skip} subscription={subscription} onKeep={onClose} />

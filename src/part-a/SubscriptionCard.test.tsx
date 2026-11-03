@@ -11,6 +11,12 @@ vi.mock("../api/mockApi", () => ({
   skipNextShipment: vi.fn(),
 }));
 
+// withTimeout.test.ts covers the real 15 seconds.
+vi.mock("./withTimeout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./withTimeout")>();
+  return { ...actual, withTimeout: <T,>(request: Promise<T>) => actual.withTimeout(request, 300) };
+});
+
 const LOADED_AT = "2026-10-01T12:00:00.000Z";
 const REFETCHED_AT = "2026-11-01T12:00:00.000Z";
 
@@ -305,6 +311,102 @@ describe("cancel flow", () => {
     await chooseCancelReason(user, reason);
 
     expect(dialogButton(t("cancelOffer.continueToCancel"))).toBeVisible();
+  });
+});
+
+describe("requests that never return", () => {
+  const never = <T,>() => new Promise<T>(() => {});
+  const closeButtons = () => within(dialog()).getAllByRole("button", { name: t("dialog.close") });
+
+  it("lets the customer out of the dialog and says it couldn't confirm", async () => {
+    const user = await renderCard(active);
+    skipMock.mockReturnValue(never());
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") });
+
+    expect(dialogStatus()).toHaveTextContent(t("skipFailure.unconfirmed"));
+    expect(closeButtons()[0]).toBeEnabled();
+    await user.click(dialogButton(t("skipConfirm.keep")));
+    await waitForDialogToClose();
+  });
+
+  it("adds the care line when a second attempt also times out", async () => {
+    const user = await renderCard(active);
+    skipMock.mockReturnValue(never());
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await user.click(await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") }));
+    await user.click(await within(dialog()).findByRole("button", { name: t("skipFailure.retry") }));
+    await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") });
+
+    expect(dialogStatus()).toHaveTextContent(t("skipFailure.unconfirmedRepeated", { subscriptionId: "sub_8F2K41" }));
+    expect(dialogStatus()).toHaveTextContent("subscription ID, sub_8F2K41");
+  });
+
+  it("does not say the charge is unchanged when the refetch shows the skip landed", async () => {
+    const user = await renderCard(active);
+    skipMock.mockReturnValue(never());
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    getSubscriptionMock.mockResolvedValue(skipped);
+    await user.click(await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") }));
+    await waitForDialogToClose();
+
+    expect(focusedElement()).toHaveTextContent("$101.87 on December 8");
+  });
+
+  it("reports a skip that lands late while the dialog is still open", async () => {
+    const user = await renderCard(active);
+    let landSkip = (_: Subscription) => {};
+    skipMock.mockReturnValue(new Promise((resolve) => (landSkip = resolve)));
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") });
+    landSkip(skipped);
+    await waitForDialogToClose();
+
+    expect(focusedElement()).toHaveTextContent("$101.87 on December 8");
+  });
+
+  it("reports a skip that lands after the customer closed the dialog", async () => {
+    const user = await renderCard(active);
+    let landSkip = (_: Subscription) => {};
+    skipMock.mockReturnValue(new Promise((resolve) => (landSkip = resolve)));
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") });
+    await user.click(dialogButton(t("skipConfirm.keep")));
+    await waitForDialogToClose();
+    landSkip(skipped);
+
+    await waitFor(() => expect(focusedElement()).toHaveTextContent("$101.87 on December 8"));
+    expect(screen.getByRole("region", { name: t("nextCharge.heading") })).toHaveTextContent("December 8");
+  });
+
+  it("does not treat a refetch that never returns as an endless wait", async () => {
+    const user = await renderCard(active);
+    skipMock.mockRejectedValue(conflict());
+    getSubscriptionMock.mockReturnValue(never());
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipFailure.refreshDetails") });
+
+    expect(dialogStatus()).toHaveTextContent(t("skipFailure.unconfirmed"));
+  });
+
+  it("shows the load error when loading never returns", async () => {
+    getSubscriptionMock.mockReturnValue(never());
+    render(<SubscriptionCard />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("loadError.message"));
+    expect(screen.getByRole("button", { name: t("loadError.retry") })).toBeEnabled();
   });
 });
 

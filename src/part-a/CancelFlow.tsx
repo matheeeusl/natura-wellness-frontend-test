@@ -24,6 +24,7 @@ interface CancelFlowProps {
   controls: SubscriptionControls;
   onApply: (patch: SubscriptionPatch) => void;
   onSkipped: (updated: Subscription) => void;
+  onSkippedAfterClose: (updated: Subscription) => void;
   onCancelled: () => void;
   transition: DialogTransition;
   onClose: () => void;
@@ -53,16 +54,34 @@ const STEP_TITLES: Record<Exclude<Step, "offer">, TitleKey> = {
   confirm: "cancelConfirm.title",
 };
 
-export function CancelFlow({ subscription, controls, onApply, onSkipped, onCancelled, transition, onClose }: CancelFlowProps) {
+export function CancelFlow({
+  subscription,
+  controls,
+  onApply,
+  onSkipped,
+  onSkippedAfterClose,
+  onCancelled,
+  transition,
+  onClose,
+}: CancelFlowProps) {
   // A paused subscription has no upcoming charge to change, so there's nothing to offer.
   const [step, setStep] = useState<Step>(subscription.status === "active" ? "reason" : "confirm");
   const [reason, setReason] = useState<CancelReason | null>(null);
   const subscriptionId = subscription.id;
-  const skip = useSkipShipment(controls, (updated) => {
+  const trackSkip = () => {
     // A skip offer only counts as accepted once the skip goes through.
     if (reason) track("cancel_offer_accepted", { subscriptionId, reason, offerId: SKIP_OFFER_ID });
     track("skip_completed", { subscriptionId, source: "cancel_flow" });
-    onSkipped(updated);
+  };
+  const skip = useSkipShipment(subscription, controls, {
+    onSkipped: (updated) => {
+      trackSkip();
+      onSkipped(updated);
+    },
+    onSkippedAfterClose: (updated) => {
+      trackSkip();
+      onSkippedAfterClose(updated);
+    },
   });
 
   const titleKey = step === "offer" ? reason && OFFER_TITLES[reason] : STEP_TITLES[step];
