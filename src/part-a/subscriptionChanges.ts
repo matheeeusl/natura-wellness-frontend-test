@@ -8,9 +8,14 @@ export type SubscriptionPatch = Partial<
   Pick<Subscription, "status" | "items" | "intervalDays" | "nextChargeAt" | "nextChargeTotalCents" | "pausedUntil" | "cancelledAt">
 >;
 
+export interface SubscriptionChange {
+  kind: "frequency" | "products" | "cancel" | "resume" | "restart";
+  patch: SubscriptionPatch;
+}
+
 export type CancelReason = "too-much" | "cost" | "different" | "no-results" | "other";
 
-export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; patch: SubscriptionPatch });
+export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; change: SubscriptionChange });
 
 export const SKIP_OFFER_ID = "skip";
 
@@ -83,7 +88,7 @@ function tooMuchOffers(subscription: Subscription): Offer[] {
       return {
         id: `every-${days}`,
         kind: "change",
-        patch,
+        change: { kind: "frequency", patch },
         label: t("tooMuchProductOffer.frequency", {
           days,
           amount,
@@ -109,7 +114,7 @@ function costOffers(subscription: Subscription): Offer[] {
       return {
         id: `reduce-${item.sku}`,
         kind: "change",
-        patch,
+        change: { kind: "products", patch },
         label: t("tooExpensiveOffer.reduceQuantity", {
           product: shortName(item.name),
           currentQuantity: item.quantity,
@@ -124,7 +129,7 @@ function costOffers(subscription: Subscription): Offer[] {
     return {
       id: `every-${days}`,
       kind: "change",
-      patch,
+      change: { kind: "frequency", patch },
       label: t("tooExpensiveOffer.frequency", {
         days,
         monthlyAmount: formatCents(monthlyCents(days)),
@@ -157,7 +162,7 @@ export function swapOffers(subscription: Subscription, replaced: SubscriptionIte
     return {
       id: `swap-${product.sku}`,
       kind: "change",
-      patch,
+      change: { kind: "products", patch },
       label: t("swapOffer.replace", {
         product: shortName(replaced.name),
         replacement: shortName(product.name),

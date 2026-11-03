@@ -127,14 +127,14 @@ export function SubscriptionCard() {
         <CancelFlow
           subscription={subscription}
           controls={controls}
-          onApply={(patch) => {
-            applyChange(patch);
-            close(t("cancelOutcome.offerApplied", nextChargeValues({ ...subscription, ...patch })));
+          onApply={(change) => {
+            applyChange(change);
+            close(t("cancelOutcome.offerApplied", nextChargeValues({ ...subscription, ...change.patch })));
           }}
           onSkipped={(updated) => close(skipSuccessMessage(updated))}
           onSkippedAfterClose={showLateSkip}
           onCancelled={() => {
-            applyChange(cancelledPatch());
+            applyChange({ kind: "cancel", patch: cancelledPatch() });
             close(t("cancelOutcome.cancelled"));
           }}
           transition={transition}
@@ -148,7 +148,7 @@ export function SubscriptionCard() {
           onConfirm={() => {
             const patch = reactivatedPatch(subscription);
             const nextCharge = nextChargeValues({ ...subscription, ...patch });
-            applyChange(patch);
+            applyChange({ kind: subscription.status === "paused" ? "resume" : "restart", patch });
             close(subscription.status === "paused" ? t("resumeSuccess.message", nextCharge) : t("restartSuccess.message", nextCharge));
           }}
           transition={transition}

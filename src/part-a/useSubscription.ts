@@ -1,22 +1,17 @@
 import { useEffect, useState } from "react";
 import { getSubscription, skipNextShipment } from "../api/mockApi";
 import { ApiError, type Subscription } from "../api/types";
-import { addDays, type SubscriptionPatch } from "./subscriptionChanges";
+import { applyChanges, moveChargeDates, rebaseChanges, recordChange, reconcileChanges, type LocalChange } from "./localChanges";
+import type { SubscriptionChange } from "./subscriptionChanges";
 import { withTimeout } from "./withTimeout";
 
 export type LoadError = "not-found" | "failed";
-
-/** Local changes only hold for the server version they were made against. */
-interface LocalOverlay {
-  basedOnUpdatedAt: string;
-  patch: SubscriptionPatch;
-}
 
 const simulatedLatency = () => new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 2100));
 
 export function useSubscription() {
   const [server, setServer] = useState<Subscription | null>(null);
-  const [overlay, setOverlay] = useState<LocalOverlay | null>(null);
+  const [changes, setChanges] = useState<LocalChange[]>([]);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [failedLoads, setFailedLoads] = useState(0);
@@ -37,8 +32,7 @@ export function useSubscription() {
     };
   }, [loadAttempt]);
 
-  const patch = overlay && overlay.basedOnUpdatedAt === server?.updatedAt ? overlay.patch : {};
-  const subscription: Subscription | null = server && { ...server, ...patch };
+  const subscription = server && applyChanges(server, changes);
 
   function retryLoad() {
     setLoadError(null);
@@ -47,38 +41,32 @@ export function useSubscription() {
 
   async function refresh() {
     const fresh = await getSubscription();
-    const changedElsewhere = fresh.updatedAt !== server?.updatedAt;
+    const { kept, dropped } = reconcileChanges(changes, fresh);
     setServer(fresh);
-    return {
-      subscription: changedElsewhere ? fresh : { ...fresh, ...patch },
-      droppedLocalChanges: changedElsewhere && Object.keys(patch).length > 0,
-    };
+    setChanges(kept);
+    return { subscription: applyChanges(fresh, kept), droppedChanges: dropped };
   }
 
   async function skip(): Promise<Subscription> {
     if (!server || !subscription?.nextChargeAt) throw new ApiError(400, "Only active subscriptions can skip a shipment");
-
-    // The API moves its own date by its own interval, so a date changed locally has to move here too.
-    const nextPatch = patch.nextChargeAt
-      ? { ...patch, nextChargeAt: addDays(subscription.nextChargeAt, subscription.intervalDays) }
-      : patch;
+    const moved = moveChargeDates(changes, subscription.intervalDays);
 
     // A subscription resumed or restarted locally is still paused or cancelled on the server.
     if (server.status !== "active") {
       await simulatedLatency();
-      setOverlay({ basedOnUpdatedAt: server.updatedAt, patch: nextPatch });
-      return { ...server, ...nextPatch };
+      setChanges(moved);
+      return applyChanges(server, moved);
     }
 
     const updated = await skipNextShipment({ subscriptionId: server.id, expectedUpdatedAt: server.updatedAt });
+    const rebased = rebaseChanges(moved, updated);
     setServer(updated);
-    // Our own skip changes updatedAt too, so the local changes move to the new version.
-    setOverlay({ basedOnUpdatedAt: updated.updatedAt, patch: nextPatch });
-    return { ...updated, ...nextPatch };
+    setChanges(rebased);
+    return applyChanges(updated, rebased);
   }
 
-  function applyChange(change: SubscriptionPatch) {
-    if (server) setOverlay({ basedOnUpdatedAt: server.updatedAt, patch: { ...patch, ...change } });
+  function applyChange(change: SubscriptionChange) {
+    if (server) setChanges(recordChange(changes, change, server));
   }
 
   return { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange };

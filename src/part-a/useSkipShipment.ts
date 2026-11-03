@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, type Subscription } from "../api/types";
+import type { LocalChange } from "./localChanges";
 import { addDays } from "./subscriptionChanges";
 import type { SubscriptionControls } from "./useSubscription";
 import { TimeoutError, withTimeout } from "./withTimeout";
@@ -21,7 +22,7 @@ export function useSkipShipment(subscription: Subscription, { refresh, skip }: S
   const [phase, setPhase] = useState<SkipPhase | null>(null);
   const [failure, setFailure] = useState<SkipFailure | null>(null);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [changesDropped, setChangesDropped] = useState(false);
+  const [droppedChanges, setDroppedChanges] = useState<LocalChange[]>([]);
 
   useEffect(() => {
     mounted.current = true;
@@ -56,8 +57,8 @@ export function useSkipShipment(subscription: Subscription, { refresh, skip }: S
 
   async function settleFailure(conflict: boolean) {
     try {
-      const { subscription: fresh, droppedLocalChanges } = await withTimeout(refresh());
-      if (droppedLocalChanges) setChangesDropped(true);
+      const { subscription: fresh, droppedChanges: dropped } = await withTimeout(refresh());
+      if (dropped.length > 0) setDroppedChanges(dropped);
       if (landedDuringTimeout(fresh)) finish(fresh);
       else if (fresh.status !== "active") setFailure("inactive");
       else setFailure(conflict ? "conflict" : "error");
@@ -71,7 +72,7 @@ export function useSkipShipment(subscription: Subscription, { refresh, skip }: S
       finished.current = false;
       beforeTimeout.current = null;
       setFailure(null);
-      setChangesDropped(false);
+      setDroppedChanges([]);
       setPhase("skipping");
       const request = skip();
       try {
@@ -96,7 +97,7 @@ export function useSkipShipment(subscription: Subscription, { refresh, skip }: S
       await settleFailure(false);
     });
 
-  return { phase, failure, failedAttempts, changesDropped, busy: phase !== null, submit, recheck };
+  return { phase, failure, failedAttempts, droppedChanges, busy: phase !== null, submit, recheck };
 }
 
 export type SkipShipment = ReturnType<typeof useSkipShipment>;

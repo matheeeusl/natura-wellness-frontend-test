@@ -12,7 +12,7 @@ import {
   swappableItems,
   type CancelReason,
   type Offer,
-  type SubscriptionPatch,
+  type SubscriptionChange,
 } from "./subscriptionChanges";
 import { track } from "./track";
 import { primaryButton, secondaryButton, textButton } from "./ui";
@@ -22,7 +22,7 @@ import type { SubscriptionControls } from "./useSubscription";
 interface CancelFlowProps {
   subscription: Subscription;
   controls: SubscriptionControls;
-  onApply: (patch: SubscriptionPatch) => void;
+  onApply: (change: SubscriptionChange) => void;
   onSkipped: (updated: Subscription) => void;
   onSkippedAfterClose: (updated: Subscription) => void;
   onCancelled: () => void;
@@ -101,7 +101,7 @@ export function CancelFlow({
       return;
     }
     track("cancel_offer_accepted", { subscriptionId, reason: chosenReason, offerId: offer.id });
-    onApply(offer.patch);
+    onApply(offer.change);
   }
 
   const continueToCancel = (

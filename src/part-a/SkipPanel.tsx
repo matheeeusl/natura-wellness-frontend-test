@@ -3,6 +3,7 @@ import type { Subscription } from "../api/types";
 import { t } from "./copy/t";
 import { DIALOG_DESCRIPTION_ID } from "./Dialog";
 import { formatCents, formatDate } from "./format";
+import { notKeptMessage } from "./localChanges";
 import { addDays } from "./subscriptionChanges";
 import { primaryButton, secondaryButton } from "./ui";
 import type { SkipShipment } from "./useSkipShipment";
@@ -64,7 +65,12 @@ export function SkipPanel({ skip, subscription, onKeep, footer }: SkipPanelProps
     <>
       <div id={DIALOG_DESCRIPTION_ID} role="status" className={showsFailure ? "text-danger" : "text-muted"}>
         <p>{skipMessage(skip, subscription)}</p>
-        {showsFailure && skip.changesDropped && <p className="mt-2">{t("skipConflict.changesNotKept")}</p>}
+        {showsFailure &&
+          skip.droppedChanges.map((change) => (
+            <p key={change.kind} className="mt-2">
+              {notKeptMessage(change)}
+            </p>
+          ))}
         {slow && <p className="mt-2 text-muted">{t("skipProgress.slow")}</p>}
       </div>
       <div className="mt-5 flex flex-col gap-2">
