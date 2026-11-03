@@ -6,11 +6,17 @@ import { withTimeout } from "./withTimeout";
 
 export type LoadError = "not-found" | "failed";
 
+/** Local changes only hold for the server version they were made against. */
+interface LocalOverlay {
+  basedOnUpdatedAt: string;
+  patch: SubscriptionPatch;
+}
+
 const simulatedLatency = () => new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 2100));
 
 export function useSubscription() {
   const [server, setServer] = useState<Subscription | null>(null);
-  const [patch, setPatch] = useState<SubscriptionPatch>({});
+  const [overlay, setOverlay] = useState<LocalOverlay | null>(null);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [failedLoads, setFailedLoads] = useState(0);
@@ -31,6 +37,7 @@ export function useSubscription() {
     };
   }, [loadAttempt]);
 
+  const patch = overlay && overlay.basedOnUpdatedAt === server?.updatedAt ? overlay.patch : {};
   const subscription: Subscription | null = server && { ...server, ...patch };
 
   function retryLoad() {
@@ -38,10 +45,14 @@ export function useSubscription() {
     setLoadAttempt((attempt) => attempt + 1);
   }
 
-  async function refresh(): Promise<Subscription> {
+  async function refresh() {
     const fresh = await getSubscription();
+    const changedElsewhere = fresh.updatedAt !== server?.updatedAt;
     setServer(fresh);
-    return { ...fresh, ...patch };
+    return {
+      subscription: changedElsewhere ? fresh : { ...fresh, ...patch },
+      droppedLocalChanges: changedElsewhere && Object.keys(patch).length > 0,
+    };
   }
 
   async function skip(): Promise<Subscription> {
@@ -55,18 +66,19 @@ export function useSubscription() {
     // A subscription resumed or restarted locally is still paused or cancelled on the server.
     if (server.status !== "active") {
       await simulatedLatency();
-      setPatch(nextPatch);
+      setOverlay({ basedOnUpdatedAt: server.updatedAt, patch: nextPatch });
       return { ...server, ...nextPatch };
     }
 
     const updated = await skipNextShipment({ subscriptionId: server.id, expectedUpdatedAt: server.updatedAt });
     setServer(updated);
-    setPatch(nextPatch);
+    // Our own skip changes updatedAt too, so the local changes move to the new version.
+    setOverlay({ basedOnUpdatedAt: updated.updatedAt, patch: nextPatch });
     return { ...updated, ...nextPatch };
   }
 
   function applyChange(change: SubscriptionPatch) {
-    setPatch((current) => ({ ...current, ...change }));
+    if (server) setOverlay({ basedOnUpdatedAt: server.updatedAt, patch: { ...patch, ...change } });
   }
 
   return { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange };

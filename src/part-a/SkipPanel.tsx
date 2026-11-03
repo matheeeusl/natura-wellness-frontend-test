@@ -64,6 +64,7 @@ export function SkipPanel({ skip, subscription, onKeep, footer }: SkipPanelProps
     <>
       <div id={DIALOG_DESCRIPTION_ID} role="status" className={showsFailure ? "text-danger" : "text-muted"}>
         <p>{skipMessage(skip, subscription)}</p>
+        {showsFailure && skip.changesDropped && <p className="mt-2">{t("skipConflict.changesNotKept")}</p>}
         {slow && <p className="mt-2 text-muted">{t("skipProgress.slow")}</p>}
       </div>
       <div className="mt-5 flex flex-col gap-2">

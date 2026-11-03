@@ -314,6 +314,105 @@ describe("cancel flow", () => {
   });
 });
 
+describe("local changes and server updates", () => {
+  const nextCharge = () => screen.getByRole("region", { name: t("nextCharge.heading") });
+
+  async function chooseCostOffer(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+    await chooseCancelReason(user, "cancelReason.tooExpensive");
+    await user.click(within(dialog()).getByRole("radio", { name }));
+    await user.click(dialogButton(t("cancelOffer.apply")));
+    await waitForDialogToClose();
+  }
+
+  it("drops local changes after a 409 when the server has a new version, and says so", async () => {
+    const user = await renderCard(active);
+    await chooseCostOffer(user, /Reduce Multivitamin/);
+    expect(nextCharge()).toHaveTextContent("$63.67");
+
+    skipMock.mockRejectedValue(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...active, updatedAt: REFETCHED_AT });
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+
+    expect(dialogStatus()).toHaveTextContent(t("skipConflict.changesNotKept"));
+    expect(dialogStatus()).toHaveTextContent("$101.87 on December 8");
+    expect(nextCharge()).toHaveTextContent("$101.87");
+  });
+
+  it("shows the server's date, not a local one, once its version changes", async () => {
+    const user = await renderCard(active);
+    await chooseCostOffer(user, /Ship every 60 days/);
+    expect(nextCharge()).toHaveTextContent("December 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 60 days");
+
+    skipMock.mockRejectedValue(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...active, nextChargeAt: "2026-11-10T12:00:00.000Z", updatedAt: REFETCHED_AT });
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+
+    expect(nextCharge()).toHaveTextContent("November 10");
+    expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+  });
+
+  it("uses the server's status once its version changes", async () => {
+    const user = await renderCard(active);
+    await chooseCostOffer(user, /Reduce Multivitamin/);
+
+    skipMock.mockRejectedValue(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...paused, updatedAt: REFETCHED_AT });
+    await openSkipDialog(user);
+    await submitSkip(user);
+
+    await waitFor(() => expect(dialogStatus()).toHaveTextContent(t("skipFailure.noLongerActive")));
+    expect(dialogStatus()).toHaveTextContent(t("skipConflict.changesNotKept"));
+    expect(screen.getByRole("heading", { name: t("pausedBanner.title") })).toBeInTheDocument();
+  });
+
+  it("keeps local changes through the customer's own skip, which also changes updatedAt", async () => {
+    const user = await renderCard(active);
+    await chooseCostOffer(user, /Reduce Multivitamin/);
+
+    skipMock.mockResolvedValueOnce(skipped).mockResolvedValueOnce({ ...skipped, updatedAt: "2026-11-02T12:00:00.000Z" });
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await waitForDialogToClose();
+    expect(nextCharge()).toHaveTextContent("$63.67");
+    expect(nextCharge()).toHaveTextContent("December 8");
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await waitForDialogToClose();
+    expect(nextCharge()).toHaveTextContent("$63.67");
+  });
+
+  it("keeps local changes when a refetch returns the same version", async () => {
+    const user = await renderCard(active);
+    await chooseCostOffer(user, /Reduce Multivitamin/);
+
+    skipMock.mockRejectedValue(serverError());
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipFailure.retry") });
+
+    expect(dialogStatus()).not.toHaveTextContent(t("skipConflict.changesNotKept"));
+    expect(nextCharge()).toHaveTextContent("$63.67");
+  });
+
+  it("doesn't mention lost changes when there were none", async () => {
+    const user = await renderCard(active);
+    skipMock.mockRejectedValue(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...active, updatedAt: REFETCHED_AT });
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+
+    expect(dialogStatus()).not.toHaveTextContent(t("skipConflict.changesNotKept"));
+  });
+});
+
 describe("loading", () => {
   const retry = () => screen.getByRole("button", { name: t("loadError.retry") });
 

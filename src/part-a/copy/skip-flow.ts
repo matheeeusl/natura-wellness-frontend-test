@@ -15,6 +15,7 @@ export const skipFlow = {
     refreshing: { en: "Getting the latest details." },
   },
   skipConflict: {
+    changesNotKept: { en: "Your recent changes to this subscription weren't kept." },
     body: { en: "We didn't skip anything because your subscription was updated elsewhere. Skip the {currentChargeDate} shipment? Your next charge would be {amount} on {nextChargeDate}." },
   },
   skipFailure: {
