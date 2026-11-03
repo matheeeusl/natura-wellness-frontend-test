@@ -44,6 +44,16 @@ export const subscription = {
     resume: { en: "Resume now" },
     restart: { en: "Restart subscription" },
     cancel: { en: "Cancel subscription" },
+    changePlan: { en: "Change" },
+  },
+  planEditor: {
+    title: { en: "Change your plan" },
+    frequencyLegend: { en: "How often should we ship?" },
+    frequencyOption: { en: "Every {days} days: about {monthlyAmount} a month" },
+    preview: { en: "Your next charge will be {amount} on {chargeDate}." },
+    previewChargeStays: { en: "Your next charge stays {amount} on {chargeDate}. After that, we'll ship every {days} days." },
+    save: { en: "Save changes" },
+    changeHint: { en: "Change something to save it." },
   },
   resumeConfirm: {
     title: { en: "Resume your subscription?" },

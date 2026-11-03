@@ -1,4 +1,4 @@
-import type { CancelReason } from "./subscriptionChanges";
+import type { CancelReason, SubscriptionChange } from "./subscriptionChanges";
 
 interface TrackEvents {
   cancel_flow_opened: { subscriptionId: string };
@@ -8,6 +8,7 @@ interface TrackEvents {
   /** `reason` is null when the customer cancelled without answering. */
   cancel_completed: { subscriptionId: string; reason: CancelReason | null };
   skip_completed: { subscriptionId: string; source: "page" | "cancel_flow" };
+  plan_updated: { subscriptionId: string; changes: SubscriptionChange["kind"][] };
 }
 
 export function track<E extends keyof TrackEvents>(event: E, payload: TrackEvents[E]) {

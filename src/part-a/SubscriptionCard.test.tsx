@@ -885,3 +885,209 @@ describe("paused and cancelled subscriptions", () => {
     expectNoSkipAction();
   });
 });
+
+describe("changing the plan", () => {
+  const nextCharge = () => screen.getByRole("region", { name: t("nextCharge.heading") });
+  const preview = (amount: string, chargeDate: string) => t("planEditor.preview", { amount, chargeDate });
+
+  const openEditor = (user: ReturnType<typeof userEvent.setup>) => user.click(pageButton(t("actions.changePlan")));
+  const chooseFrequency = (user: ReturnType<typeof userEvent.setup>, days: number) =>
+    user.click(within(dialog()).getByRole("radio", { name: new RegExp(`^Every ${days} days`) }));
+
+  async function saveFrequency(user: ReturnType<typeof userEvent.setup>, days: number) {
+    await openEditor(user);
+    await chooseFrequency(user, days);
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
+  }
+
+  it("is only offered on the active page", async () => {
+    await renderCard(paused);
+    expect(screen.queryByRole("button", { name: t("actions.changePlan") })).not.toBeInTheDocument();
+    cleanup();
+
+    await renderCard(cancelled);
+    expect(screen.queryByRole("button", { name: t("actions.changePlan") })).not.toBeInTheDocument();
+  });
+
+  it("lists every frequency with its monthly cost, with the current one selected", async () => {
+    const user = await renderCard(active);
+    await openEditor(user);
+
+    expectOffers([
+      t("planEditor.frequencyOption", { days: 30, monthlyAmount: "$101.87" }),
+      t("planEditor.frequencyOption", { days: 45, monthlyAmount: "$67.91" }),
+      t("planEditor.frequencyOption", { days: 60, monthlyAmount: "$50.94" }),
+      t("planEditor.frequencyOption", { days: 90, monthlyAmount: "$33.96" }),
+    ]);
+    expect(within(dialog()).getByRole("radio", { name: /^Every 30 days/ })).toBeChecked();
+    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "November 8"));
+  });
+
+  it("explains why it can't save before any change, and ignores the press", async () => {
+    const user = await renderCard(active);
+    await openEditor(user);
+
+    const save = dialogButton(t("planEditor.save"));
+    expect(save).toHaveAccessibleDescription(t("planEditor.changeHint"));
+    await user.click(save);
+    expect(dialog()).toBeInTheDocument();
+
+    await chooseFrequency(user, 60);
+    expect(save).not.toHaveAccessibleDescription();
+    await chooseFrequency(user, 30);
+    expect(save).toHaveAccessibleDescription(t("planEditor.changeHint"));
+  });
+
+  it("moves the charge out by the difference when the interval gets longer, only after saving", async () => {
+    const user = await renderCard(active);
+    await openEditor(user);
+    await chooseFrequency(user, 60);
+
+    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "December 8"));
+    expect(nextCharge()).toHaveTextContent("on November 8");
+
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
+
+    expect(focusedElement()).toHaveTextContent(t("cancelOutcome.offerApplied", { amount: "$101.87", chargeDate: "December 8" }));
+    expect(nextCharge()).toHaveTextContent("on December 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 60 days");
+  });
+
+  it("changes nothing when the customer closes without saving", async () => {
+    const user = await renderCard(active);
+    await openEditor(user);
+    await chooseFrequency(user, 90);
+    await user.click(dialogButton(t("dialog.close")));
+    await waitForDialogToClose();
+
+    expect(nextCharge()).toHaveTextContent("on November 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+  });
+
+  it("keeps the charge date when the interval gets shorter", async () => {
+    const user = await renderCard({ ...active, intervalDays: 60 });
+    await openEditor(user);
+    await chooseFrequency(user, 30);
+
+    expect(dialog()).toHaveAccessibleDescription(
+      t("planEditor.previewChargeStays", { amount: "$101.87", chargeDate: "November 8", days: 30 }),
+    );
+
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
+
+    expect(nextCharge()).toHaveTextContent("on November 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+  });
+
+  it("restores the original date going from 30 to 60 and back to 30", async () => {
+    const user = await renderCard(active);
+    await saveFrequency(user, 60);
+
+    await openEditor(user);
+    await chooseFrequency(user, 30);
+    // The date moves back, so the "stays" message would be false here.
+    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "November 8"));
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
+
+    expect(nextCharge()).toHaveTextContent("on November 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+  });
+
+  it("calculates from the date without any frequency change, not from the date shown", async () => {
+    const user = await renderCard(active);
+    await saveFrequency(user, 90);
+    expect(nextCharge()).toHaveTextContent("on January 7");
+
+    await saveFrequency(user, 45);
+
+    expect(nextCharge()).toHaveTextContent("on November 23");
+  });
+
+  it("doesn't report a lost change after the customer went back to the original frequency", async () => {
+    const user = await renderCard(active);
+    await saveFrequency(user, 60);
+    await saveFrequency(user, 30);
+
+    skipMock.mockRejectedValueOnce(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...active, nextChargeAt: "2026-11-15T12:00:00.000Z", updatedAt: REFETCHED_AT });
+    await openSkipDialog(user);
+    await submitSkip(user);
+
+    await waitFor(() => expect(dialogStatus()).toHaveTextContent("November 15"));
+    expect(dialogStatus()).not.toHaveTextContent(/wasn't kept/);
+  });
+
+  it("drops a saved frequency when the server's date changed, and names it", async () => {
+    const user = await renderCard(active);
+    await saveFrequency(user, 60);
+
+    skipMock.mockRejectedValueOnce(conflict());
+    getSubscriptionMock.mockResolvedValue({ ...active, nextChargeAt: "2026-11-15T12:00:00.000Z", updatedAt: REFETCHED_AT });
+    await openSkipDialog(user);
+    await submitSkip(user);
+
+    await waitFor(() => expect(dialogStatus()).toHaveTextContent(t("changeNotKept.frequency", { days: 60 })));
+  });
+
+  it("returns to the date a 30-day skip would give when shortening after a skip at 60 days", async () => {
+    const user = await renderCard(active);
+    await saveFrequency(user, 60);
+    skipMock.mockResolvedValue(skipped);
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await waitForDialogToClose();
+    expect(nextCharge()).toHaveTextContent("on February 6");
+
+    await openEditor(user);
+    await chooseFrequency(user, 30);
+
+    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "December 8"));
+  });
+
+  it("moves a restarted subscription's charge by the difference from the interval it restarted on", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime("2026-11-03T12:00:00.000Z");
+    try {
+      const user = await renderCard(active);
+      await saveFrequency(user, 60);
+      await chooseCancelReason(user, "cancelReason.other");
+      await user.click(dialogButton(t("cancelConfirm.confirm")));
+      await waitForDialogToClose();
+      await user.click(pageButton(t("actions.restart")));
+      await user.click(dialogButton(t("restartConfirm.confirm")));
+      await waitForDialogToClose();
+      expect(nextCharge()).toHaveTextContent("on November 6");
+      expect(nextCharge()).toHaveTextContent("Ships every 60 days");
+
+      await openEditor(user);
+      await chooseFrequency(user, 90);
+      expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "December 6"));
+
+      await chooseFrequency(user, 45);
+      expect(dialog()).toHaveAccessibleDescription(
+        t("planEditor.previewChargeStays", { amount: "$101.87", chargeDate: "November 6", days: 45 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tracks a saved change, and nothing for a closed editor", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const user = await renderCard(active);
+    await openEditor(user);
+    await chooseFrequency(user, 60);
+    await user.click(dialogButton(t("dialog.close")));
+    await waitForDialogToClose();
+    expect(log).not.toHaveBeenCalled();
+
+    await saveFrequency(user, 60);
+
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith("[track]", "plan_updated", { subscriptionId: "sub_8F2K41", changes: ["frequency"] });
+  });
+});

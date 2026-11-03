@@ -3,6 +3,7 @@ import type { Subscription } from "../api/types";
 import { t, type CopyKey } from "./copy/t";
 import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatDate, shortName } from "./format";
+import { RadioCard } from "./RadioCard";
 import { SkipPanel } from "./SkipPanel";
 import {
   hasOffers,
@@ -247,22 +248,3 @@ function OfferStep({ reason, subscription, onChoose, footer }: OfferStepProps) {
     </form>
   );
 }
-
-interface RadioCardProps {
-  name: string;
-  label: string;
-  checked: boolean;
-  onChange: () => void;
-}
-
-function RadioCard({ name, label, checked, onChange }: RadioCardProps) {
-  return (
-    <label
-      className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border p-3 ${checked ? "border-forest bg-sage" : "border-line bg-white"}`}
-    >
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="mt-1 size-4 shrink-0 accent-forest" />
-      <span>{label}</span>
-    </label>
-  );
-}
-

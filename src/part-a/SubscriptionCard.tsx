@@ -4,15 +4,16 @@ import { CancelFlow } from "./CancelFlow";
 import { t } from "./copy/t";
 import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatCents, formatDate, shortName } from "./format";
+import { PlanEditor } from "./PlanEditor";
 import { SkipPanel } from "./SkipPanel";
 import { cancelledPatch, nextChargeValues, reactivatedPatch, savingsPerShipmentCents } from "./subscriptionChanges";
 import { track } from "./track";
-import { primaryButton, secondaryButton, textButton } from "./ui";
+import { inlineButton, primaryButton, secondaryButton, textButton } from "./ui";
 import { useSkipShipment } from "./useSkipShipment";
 import { useSlowFlag } from "./useSlowFlag";
 import { useSubscription, type SubscriptionControls } from "./useSubscription";
 
-type OpenDialog = "skip" | "cancel" | "reactivate";
+type OpenDialog = "skip" | "cancel" | "reactivate" | "plan";
 
 const MAX_LOAD_FAILURES_BEFORE_SUPPORT = 2;
 
@@ -22,7 +23,7 @@ const skipSuccessMessage = (updated: Subscription) => {
 };
 
 export function SubscriptionCard() {
-  const { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange } = useSubscription();
+  const { subscription, frequencyBase, loadError, failedLoads, retryLoad, refresh, skip, applyChange } = useSubscription();
   const [openDialog, setOpenDialog] = useState<OpenDialog | null>(null);
   const [closingDialog, setClosingDialog] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -96,7 +97,7 @@ export function SubscriptionCard() {
             </p>
           )}
           <StatusSummary subscription={subscription} />
-          <ProductList subscription={subscription} />
+          <ProductList subscription={subscription} onChangePlan={() => open("plan")} />
           {subscription.status !== "cancelled" && (
             <p className="rounded-xl bg-sage p-4 text-forest">
               {t("savings.perShipment", { amount: formatCents(savingsPerShipmentCents(subscription)) })}
@@ -104,6 +105,20 @@ export function SubscriptionCard() {
           )}
           <Actions subscription={subscription} onOpen={open} />
         </div>
+      )}
+
+      {subscription && frequencyBase && openDialog === "plan" && (
+        <PlanEditor
+          subscription={subscription}
+          frequencyBase={frequencyBase}
+          onSave={(changes, updated) => {
+            changes.forEach(applyChange);
+            track("plan_updated", { subscriptionId: subscription.id, changes: changes.map(({ kind }) => kind) });
+            close(t("cancelOutcome.offerApplied", nextChargeValues(updated)));
+          }}
+          transition={transition}
+          onClose={() => close()}
+        />
       )}
 
       {subscription && openDialog === "skip" && (
@@ -212,16 +227,23 @@ function Banner({ label, className, children }: { label: string; className: stri
   );
 }
 
-function ProductList({ subscription }: { subscription: Subscription }) {
+function ProductList({ subscription, onChangePlan }: { subscription: Subscription; onChangePlan: () => void }) {
   const { status, items } = subscription;
   const cancelled = status === "cancelled";
   const heading = t(status === "active" ? "products.headingActive" : cancelled ? "products.headingCancelled" : "products.headingPaused");
 
   return (
     <section aria-labelledby="products-heading" className="rounded-2xl border border-line bg-white p-5">
-      <h2 id="products-heading" className="font-semibold">
-        {heading}
-      </h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="products-heading" className="font-semibold">
+          {heading}
+        </h2>
+        {status === "active" && (
+          <button type="button" className={inlineButton} onClick={onChangePlan}>
+            {t("actions.changePlan")}
+          </button>
+        )}
+      </div>
       <ul className="mt-3 flex flex-col gap-3">
         {items.map((item) => (
           <ProductRow key={item.sku} item={item} muted={cancelled} />

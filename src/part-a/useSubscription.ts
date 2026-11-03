@@ -33,6 +33,7 @@ export function useSubscription() {
   }, [loadAttempt]);
 
   const subscription = server && applyChanges(server, changes);
+  const frequencyBase = server && applyChanges(server, changes.filter(({ kind }) => kind !== "frequency"));
 
   function retryLoad() {
     setLoadError(null);
@@ -69,7 +70,7 @@ export function useSubscription() {
     if (server) setChanges(recordChange(changes, change, server));
   }
 
-  return { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange };
+  return { subscription, frequencyBase, loadError, failedLoads, retryLoad, refresh, skip, applyChange };
 }
 
 export type SubscriptionControls = Pick<ReturnType<typeof useSubscription>, "refresh" | "skip">;

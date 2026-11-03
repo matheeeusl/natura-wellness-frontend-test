@@ -13,11 +13,16 @@ export interface SubscriptionChange {
   patch: SubscriptionPatch;
 }
 
+/** The next charge and interval as they would be with no frequency change on top. */
+export type FrequencyBase = Pick<Subscription, "nextChargeAt" | "intervalDays">;
+
 export type CancelReason = "too-much" | "cost" | "different" | "no-results" | "other";
 
 export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; change: SubscriptionChange });
 
 export const SKIP_OFFER_ID = "skip";
+
+export const FREQUENCY_OPTIONS = [30, 45, 60, 90];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_MONTH = 30;
@@ -29,6 +34,8 @@ const BUNDLE_CONTENTS: Record<string, string[]> = {
 };
 
 export const addDays = (iso: string, days: number) => new Date(Date.parse(iso) + days * DAY_MS).toISOString();
+
+export const monthlyCents = (totalCents: number, days: number) => Math.round((totalCents * DAYS_IN_MONTH) / days);
 
 const contentsOf = (sku: string) => BUNDLE_CONTENTS[sku] ?? [sku];
 
@@ -54,6 +61,8 @@ export const reactivatedPatch = (subscription: Subscription): SubscriptionPatch 
   status: "active",
   cancelledAt: null,
   pausedUntil: null,
+  // The new date replaces any date a frequency change set, so it's based on the interval shown now.
+  intervalDays: subscription.intervalDays,
   nextChargeAt: addDays(new Date().toISOString(), REACTIVATION_DELAY_DAYS),
   nextChargeTotalCents: totalAfterDiscount(subscription.items, subscription.discountPercent),
 });
@@ -62,6 +71,14 @@ export const reactivatedPatch = (subscription: Subscription): SubscriptionPatch 
 export function nextChargeValues({ nextChargeAt, nextChargeTotalCents }: Pick<Subscription, "nextChargeAt" | "nextChargeTotalCents">) {
   if (!nextChargeAt || nextChargeTotalCents === null) return { amount: "", chargeDate: "" };
   return { amount: formatCents(nextChargeTotalCents), chargeDate: formatDate(nextChargeAt) };
+}
+
+/** A longer interval moves the charge out by the difference; a shorter one keeps it. Going back restores the original date. */
+export function frequencyChange({ nextChargeAt, intervalDays }: FrequencyBase, days: number): SubscriptionChange {
+  return {
+    kind: "frequency",
+    patch: { intervalDays: days, nextChargeAt: nextChargeAt && addDays(nextChargeAt, Math.max(days - intervalDays, 0)) },
+  };
 }
 
 function frequencyPatch(subscription: Subscription, days: number): SubscriptionPatch {

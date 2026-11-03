@@ -9,6 +9,8 @@ export interface LocalChange extends SubscriptionChange {
 
 const fieldsOf = (patch: SubscriptionPatch) => Object.keys(patch) as (keyof SubscriptionPatch)[];
 
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
 const pickFields = (patch: SubscriptionPatch, server: Subscription) =>
   Object.fromEntries(fieldsOf(patch).map((field) => [field, server[field]])) as SubscriptionPatch;
 
@@ -17,6 +19,9 @@ const groupOf = ({ kind }: SubscriptionChange) => (kind === "frequency" || kind 
 
 export function recordChange(changes: LocalChange[], change: SubscriptionChange, server: Subscription): LocalChange[] {
   const others = changes.filter((existing) => groupOf(existing) !== groupOf(change));
+  const withoutChange = applyChanges(server, others);
+  // Going back to what's already there leaves nothing to keep or lose.
+  if (fieldsOf(change.patch).every((field) => sameValue(withoutChange[field], change.patch[field]))) return others;
   return [...others, { ...change, basedOn: pickFields(change.patch, server) }];
 }
 
@@ -26,7 +31,7 @@ export const applyChanges = (server: Subscription, changes: LocalChange[]): Subs
 /** Splits changes by whether any field they wrote has changed on the server. `updatedAt` alone doesn't count. */
 export function reconcileChanges(changes: LocalChange[], fresh: Subscription) {
   const stillValid = ({ basedOn }: LocalChange) =>
-    fieldsOf(basedOn).every((field) => JSON.stringify(fresh[field]) === JSON.stringify(basedOn[field]));
+    fieldsOf(basedOn).every((field) => sameValue(fresh[field], basedOn[field]));
   return { kept: changes.filter(stillValid), dropped: changes.filter((change) => !stillValid(change)) };
 }
 
