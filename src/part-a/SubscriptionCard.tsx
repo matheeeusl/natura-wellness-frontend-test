@@ -2,16 +2,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Subscription, SubscriptionItem } from "../api/types";
 import { CancelFlow } from "./CancelFlow";
 import { t } from "./copy/t";
-import { Dialog, type DialogTransition } from "./Dialog";
+import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatCents, formatDate, shortName } from "./format";
+import { PlanEditor } from "./PlanEditor";
 import { SkipPanel } from "./SkipPanel";
 import { cancelledPatch, nextChargeValues, reactivatedPatch, savingsPerShipmentCents } from "./subscriptionChanges";
-import { primaryButton, secondaryButton, textButton } from "./ui";
+import { track } from "./track";
+import { inlineButton, primaryButton, secondaryButton, textButton } from "./ui";
 import { useSkipShipment } from "./useSkipShipment";
 import { useSlowFlag } from "./useSlowFlag";
 import { useSubscription, type SubscriptionControls } from "./useSubscription";
 
-type OpenDialog = "skip" | "cancel" | "reactivate";
+type OpenDialog = "skip" | "cancel" | "reactivate" | "plan";
+
+const MAX_LOAD_FAILURES_BEFORE_SUPPORT = 2;
 
 const skipSuccessMessage = (updated: Subscription) => {
   const { amount, chargeDate } = nextChargeValues(updated);
@@ -19,12 +23,15 @@ const skipSuccessMessage = (updated: Subscription) => {
 };
 
 export function SubscriptionCard() {
-  const { subscription, loadError, retryLoad, refresh, skip, applyChange } = useSubscription();
+  const { subscription, frequencyBase, loadError, failedLoads, retryLoad, refresh, skip, applyChange } = useSubscription();
   const [openDialog, setOpenDialog] = useState<OpenDialog | null>(null);
   const [closingDialog, setClosingDialog] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const loading = !subscription && !loadError;
+  const slowLoad = useSlowFlag(loading);
   const controls: SubscriptionControls = { refresh, skip };
 
   useEffect(() => {
@@ -32,6 +39,7 @@ export function SubscriptionCard() {
   }, [notice]);
 
   const open = (dialog: OpenDialog) => {
+    if (dialog === "cancel" && subscription) track("cancel_flow_opened", { subscriptionId: subscription.id });
     setNotice(null);
     setOpenDialog(dialog);
   };
@@ -46,16 +54,31 @@ export function SubscriptionCard() {
     setNotice(pendingNotice);
   };
   const transition = { closing: closingDialog, onExited: handleExited };
+  const showLateSkip = (updated: Subscription) => setNotice(skipSuccessMessage(updated));
 
   return (
     <main className="mx-auto w-full max-w-lg px-4 py-6 sm:py-10">
-      <h1 className="font-display text-3xl font-semibold text-forest">{t("page.title")}</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="font-display text-3xl font-semibold text-forest outline-none">
+        {t("page.title")}
+      </h1>
 
-      {!subscription && !loadError && <LoadingState />}
+      <div role="status" className="sr-only">
+        {loading && (slowLoad ? t("loading.slow") : t("loading.message"))}
+        {subscription && t("loading.loaded")}
+      </div>
+
+      {loading && <LoadingState slow={slowLoad} />}
       {loadError === "failed" && (
         <div className="mt-6 rounded-2xl border border-line bg-white p-5">
-          <p role="alert">{t("loadError.message")}</p>
-          <button type="button" className={`${primaryButton} mt-4`} onClick={retryLoad}>
+          <p role="alert">{failedLoads >= MAX_LOAD_FAILURES_BEFORE_SUPPORT ? t("loadError.repeated") : t("loadError.message")}</p>
+          <button
+            type="button"
+            className={`${primaryButton} mt-4`}
+            onClick={() => {
+              retryLoad();
+              headingRef.current?.focus();
+            }}
+          >
             {t("loadError.retry")}
           </button>
         </div>
@@ -69,12 +92,12 @@ export function SubscriptionCard() {
       {subscription && (
         <div className="mt-6 flex flex-col gap-4">
           {notice && (
-            <p ref={noticeRef} role="status" tabIndex={-1} className="rounded-xl bg-sage p-4 font-medium text-forest outline-none motion-safe:animate-content-in">
+            <p ref={noticeRef} tabIndex={-1} className="rounded-xl bg-sage p-4 font-medium text-forest outline-none motion-safe:animate-content-in">
               {notice}
             </p>
           )}
           <StatusSummary subscription={subscription} />
-          <ProductList subscription={subscription} />
+          <ProductList subscription={subscription} onChangePlan={() => open("plan")} />
           {subscription.status !== "cancelled" && (
             <p className="rounded-xl bg-sage p-4 text-forest">
               {t("savings.perShipment", { amount: formatCents(savingsPerShipmentCents(subscription)) })}
@@ -84,27 +107,50 @@ export function SubscriptionCard() {
         </div>
       )}
 
-      {subscription && openDialog === "skip" && (
-        <SkipDialog
+      {subscription && frequencyBase && openDialog === "plan" && (
+        <PlanEditor
           subscription={subscription}
-          controls={controls}
-          onSkipped={(updated) => close(skipSuccessMessage(updated))}
+          frequencyBase={frequencyBase}
+          onSave={(changes, updated) => {
+            changes.forEach(applyChange);
+            track("plan_updated", { subscriptionId: subscription.id, changes: changes.map(({ kind }) => kind) });
+            close(t("cancelOutcome.offerApplied", nextChargeValues(updated)));
+          }}
           transition={transition}
           onClose={() => close()}
         />
       )}
 
-      {subscription && openDialog === "cancel" && (
-        <CancelFlow
+      {subscription && openDialog === "skip" && (
+        <SkipDialog
           subscription={subscription}
           controls={controls}
-          onApply={(patch) => {
-            applyChange(patch);
-            close(t("cancelOutcome.offerApplied", nextChargeValues({ ...subscription, ...patch })));
+          onSkipped={(updated) => {
+            track("skip_completed", { subscriptionId: updated.id, source: "page" });
+            close(skipSuccessMessage(updated));
+          }}
+          onSkippedAfterClose={(updated) => {
+            track("skip_completed", { subscriptionId: updated.id, source: "page" });
+            showLateSkip(updated);
+          }}
+          transition={transition}
+          onClose={() => close()}
+        />
+      )}
+
+      {subscription && frequencyBase && openDialog === "cancel" && (
+        <CancelFlow
+          subscription={subscription}
+          frequencyBase={frequencyBase}
+          controls={controls}
+          onApply={(change) => {
+            applyChange(change);
+            close(t("cancelOutcome.offerApplied", nextChargeValues({ ...subscription, ...change.patch })));
           }}
           onSkipped={(updated) => close(skipSuccessMessage(updated))}
+          onSkippedAfterClose={showLateSkip}
           onCancelled={() => {
-            applyChange(cancelledPatch());
+            applyChange({ kind: "cancel", patch: cancelledPatch() });
             close(t("cancelOutcome.cancelled"));
           }}
           transition={transition}
@@ -118,7 +164,7 @@ export function SubscriptionCard() {
           onConfirm={() => {
             const patch = reactivatedPatch(subscription);
             const nextCharge = nextChargeValues({ ...subscription, ...patch });
-            applyChange(patch);
+            applyChange({ kind: subscription.status === "paused" ? "resume" : "restart", patch });
             close(subscription.status === "paused" ? t("resumeSuccess.message", nextCharge) : t("restartSuccess.message", nextCharge));
           }}
           transition={transition}
@@ -129,14 +175,11 @@ export function SubscriptionCard() {
   );
 }
 
-function LoadingState() {
-  const slow = useSlowFlag(true);
+function LoadingState({ slow }: { slow: boolean }) {
   return (
-    <div aria-busy="true" className="mt-6">
-      <div role="status" className={slow ? "mb-4 text-muted" : "sr-only"}>
-        {slow ? t("loading.slow") : t("loading.message")}
-      </div>
-      <div className="flex animate-pulse flex-col gap-4" aria-hidden="true">
+    <div className="mt-6" aria-hidden="true">
+      {slow && <p className="mb-4 text-muted">{t("loading.slow")}</p>}
+      <div className="flex flex-col gap-4 motion-safe:animate-pulse">
         <div className="h-36 rounded-2xl bg-stone-tint" />
         <div className="h-44 rounded-2xl bg-stone-tint" />
       </div>
@@ -185,16 +228,23 @@ function Banner({ label, className, children }: { label: string; className: stri
   );
 }
 
-function ProductList({ subscription }: { subscription: Subscription }) {
+function ProductList({ subscription, onChangePlan }: { subscription: Subscription; onChangePlan: () => void }) {
   const { status, items } = subscription;
   const cancelled = status === "cancelled";
   const heading = t(status === "active" ? "products.headingActive" : cancelled ? "products.headingCancelled" : "products.headingPaused");
 
   return (
     <section aria-labelledby="products-heading" className="rounded-2xl border border-line bg-white p-5">
-      <h2 id="products-heading" className="font-semibold">
-        {heading}
-      </h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="products-heading" className="font-semibold">
+          {heading}
+        </h2>
+        {status === "active" && (
+          <button type="button" className={inlineButton} onClick={onChangePlan}>
+            {t("actions.changePlan")}
+          </button>
+        )}
+      </div>
       <ul className="mt-3 flex flex-col gap-3">
         {items.map((item) => (
           <ProductRow key={item.sku} item={item} muted={cancelled} />
@@ -251,12 +301,13 @@ interface SkipDialogProps {
   subscription: Subscription;
   controls: SubscriptionControls;
   onSkipped: (updated: Subscription) => void;
+  onSkippedAfterClose: (updated: Subscription) => void;
   transition: DialogTransition;
   onClose: () => void;
 }
 
-function SkipDialog({ subscription, controls, onSkipped, transition, onClose }: SkipDialogProps) {
-  const skip = useSkipShipment(controls, onSkipped);
+function SkipDialog({ subscription, controls, onSkipped, onSkippedAfterClose, transition, onClose }: SkipDialogProps) {
+  const skip = useSkipShipment(subscription, controls, { onSkipped, onSkippedAfterClose });
   return (
     <Dialog title={t("skipConfirm.title")} busy={skip.busy} transition={transition} onClose={onClose}>
       <SkipPanel skip={skip} subscription={subscription} onKeep={onClose} />
@@ -276,7 +327,7 @@ function ReactivateDialog({ subscription, onConfirm, transition, onClose }: Reac
   const nextCharge = nextChargeValues({ ...subscription, ...reactivatedPatch(subscription) });
   return (
     <Dialog title={t(paused ? "resumeConfirm.title" : "restartConfirm.title")} transition={transition} onClose={onClose}>
-      <p className="text-muted">{paused ? t("resumeConfirm.body", nextCharge) : t("restartConfirm.body", nextCharge)}</p>
+      <p id={DIALOG_DESCRIPTION_ID} className="text-muted">{paused ? t("resumeConfirm.body", nextCharge) : t("restartConfirm.body", nextCharge)}</p>
       <div className="mt-5 flex flex-col gap-2">
         <button type="button" className={primaryButton} onClick={onConfirm}>
           {t(paused ? "resumeConfirm.confirm" : "restartConfirm.confirm")}

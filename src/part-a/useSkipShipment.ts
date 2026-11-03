@@ -1,15 +1,35 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, type Subscription } from "../api/types";
+import type { LocalChange } from "./localChanges";
+import { addDays } from "./subscriptionChanges";
 import type { SubscriptionControls } from "./useSubscription";
+import { TimeoutError, withTimeout } from "./withTimeout";
 
 export type SkipFailure = "conflict" | "inactive" | "error" | "unknown";
 type SkipPhase = "skipping" | "refreshing" | "rechecking";
 
-export function useSkipShipment({ refresh, skip }: SubscriptionControls, onSkipped: (updated: Subscription) => void) {
+interface SkipCallbacks {
+  onSkipped: (updated: Subscription) => void;
+  /** A timed-out skip went through after the customer closed the dialog. */
+  onSkippedAfterClose: (updated: Subscription) => void;
+}
+
+export function useSkipShipment(subscription: Subscription, { refresh, skip }: SubscriptionControls, callbacks: SkipCallbacks) {
   const locked = useRef(false);
+  const mounted = useRef(true);
+  const finished = useRef(false);
+  const beforeTimeout = useRef<Subscription | null>(null);
   const [phase, setPhase] = useState<SkipPhase | null>(null);
   const [failure, setFailure] = useState<SkipFailure | null>(null);
   const [failedAttempts, setFailedAttempts] = useState(0);
+  const [droppedChanges, setDroppedChanges] = useState<LocalChange[]>([]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function run(work: () => Promise<void>) {
     if (locked.current) return;
@@ -22,10 +42,25 @@ export function useSkipShipment({ refresh, skip }: SubscriptionControls, onSkipp
     }
   }
 
+  function finish(updated: Subscription) {
+    if (finished.current) return;
+    finished.current = true;
+    if (mounted.current) callbacks.onSkipped(updated);
+    else callbacks.onSkippedAfterClose(updated);
+  }
+
+  /** After a timeout the skip may have landed anyway, and "still on {date}" would be wrong. */
+  function landedDuringTimeout(fresh: Subscription) {
+    const before = beforeTimeout.current;
+    return !!before?.nextChargeAt && fresh.nextChargeAt === addDays(before.nextChargeAt, before.intervalDays);
+  }
+
   async function settleFailure(conflict: boolean) {
     try {
-      const fresh = await refresh();
-      if (fresh.status !== "active") setFailure("inactive");
+      const { subscription: fresh, droppedChanges: dropped } = await withTimeout(refresh());
+      if (dropped.length > 0) setDroppedChanges(dropped);
+      if (landedDuringTimeout(fresh)) finish(fresh);
+      else if (fresh.status !== "active") setFailure("inactive");
       else setFailure(conflict ? "conflict" : "error");
     } catch {
       setFailure("unknown");
@@ -34,13 +69,23 @@ export function useSkipShipment({ refresh, skip }: SubscriptionControls, onSkipp
 
   const submit = () =>
     run(async () => {
+      finished.current = false;
+      beforeTimeout.current = null;
       setFailure(null);
+      setDroppedChanges([]);
       setPhase("skipping");
+      const request = skip();
       try {
-        onSkipped(await skip());
+        finish(await withTimeout(request));
       } catch (error) {
-        const conflict = error instanceof ApiError && error.status === 409;
         setFailedAttempts((attempts) => attempts + 1);
+        if (error instanceof TimeoutError) {
+          beforeTimeout.current = subscription;
+          setFailure("unknown");
+          request.then(finish, () => {});
+          return;
+        }
+        const conflict = error instanceof ApiError && error.status === 409;
         if (conflict) setPhase("refreshing");
         await settleFailure(conflict);
       }
@@ -52,7 +97,7 @@ export function useSkipShipment({ refresh, skip }: SubscriptionControls, onSkipp
       await settleFailure(false);
     });
 
-  return { phase, failure, failedAttempts, busy: phase !== null, submit, recheck };
+  return { phase, failure, failedAttempts, droppedChanges, busy: phase !== null, submit, recheck };
 }
 
 export type SkipShipment = ReturnType<typeof useSkipShipment>;

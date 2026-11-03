@@ -8,20 +8,39 @@ export type SubscriptionPatch = Partial<
   Pick<Subscription, "status" | "items" | "intervalDays" | "nextChargeAt" | "nextChargeTotalCents" | "pausedUntil" | "cancelledAt">
 >;
 
+export interface SubscriptionChange {
+  kind: "frequency" | "products" | "cancel" | "resume" | "restart";
+  patch: SubscriptionPatch;
+}
+
+/** The next charge and interval as they would be with no frequency change on top. */
+export type FrequencyBase = Pick<Subscription, "nextChargeAt" | "intervalDays"> & {
+  /** The date a skip set. A frequency change can't move the charge earlier than this. */
+  minChargeAt: string | null;
+};
+
 export type CancelReason = "too-much" | "cost" | "different" | "no-results" | "other";
 
-export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; patch: SubscriptionPatch });
+export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; change: SubscriptionChange });
+
+export const SKIP_OFFER_ID = "skip";
+
+export const FREQUENCY_OPTIONS = [30, 45, 60, 90];
+export const MIN_QUANTITY = 1;
+export const MAX_QUANTITY = 10;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_MONTH = 30;
 const REACTIVATION_DELAY_DAYS = 3;
-const LONGER_INTERVALS = [60, 90];
+const OFFERED_INTERVALS = [45, 60, 90];
 /** The catalog only lists a bundle's contents in its name. */
 const BUNDLE_CONTENTS: Record<string, string[]> = {
   "NW-ESSENTIALS": ["NW-VITD-60", "NW-MULTI-30", "NW-MAG-90"],
 };
 
 export const addDays = (iso: string, days: number) => new Date(Date.parse(iso) + days * DAY_MS).toISOString();
+
+export const monthlyCents = (totalCents: number, days: number) => Math.round((totalCents * DAYS_IN_MONTH) / days);
 
 const contentsOf = (sku: string) => BUNDLE_CONTENTS[sku] ?? [sku];
 
@@ -47,6 +66,8 @@ export const reactivatedPatch = (subscription: Subscription): SubscriptionPatch 
   status: "active",
   cancelledAt: null,
   pausedUntil: null,
+  // The new date replaces any date a frequency change set, so it's based on the interval shown now.
+  intervalDays: subscription.intervalDays,
   nextChargeAt: addDays(new Date().toISOString(), REACTIVATION_DELAY_DAYS),
   nextChargeTotalCents: totalAfterDiscount(subscription.items, subscription.discountPercent),
 });
@@ -57,18 +78,31 @@ export function nextChargeValues({ nextChargeAt, nextChargeTotalCents }: Pick<Su
   return { amount: formatCents(nextChargeTotalCents), chargeDate: formatDate(nextChargeAt) };
 }
 
-function frequencyPatch(subscription: Subscription, days: number): SubscriptionPatch {
-  const { nextChargeAt, intervalDays } = subscription;
-  return { intervalDays: days, nextChargeAt: nextChargeAt && addDays(nextChargeAt, days - intervalDays) };
+/** A longer interval moves the charge out by the difference; a shorter one keeps it. Going back restores the original date. */
+export function frequencyChange({ nextChargeAt, intervalDays, minChargeAt }: FrequencyBase, days: number): SubscriptionChange {
+  const moved = nextChargeAt && addDays(nextChargeAt, Math.max(days - intervalDays, 0));
+  const tooEarly = moved && minChargeAt && Date.parse(moved) < Date.parse(minChargeAt);
+  return { kind: "frequency", patch: { intervalDays: days, nextChargeAt: tooEarly ? minChargeAt : moved } };
 }
 
-function tooMuchOffers(subscription: Subscription): Offer[] {
+/** `quantities` holds new quantities by SKU; items it doesn't list stay as they are. */
+export function quantityChange(subscription: Subscription, quantities: Record<string, number>): SubscriptionChange {
+  return {
+    kind: "products",
+    patch: withItems(
+      subscription,
+      subscription.items.map((item) => ({ ...item, quantity: quantities[item.sku] ?? item.quantity })),
+    ),
+  };
+}
+
+function tooMuchOffers(subscription: Subscription, base: FrequencyBase): Offer[] {
   const { nextChargeAt, nextChargeTotalCents, intervalDays } = subscription;
   if (!nextChargeAt || nextChargeTotalCents === null) return [];
   const amount = formatCents(nextChargeTotalCents);
   return [
     {
-      id: "skip",
+      id: SKIP_OFFER_ID,
       kind: "skip",
       label: t("tooMuchProductOffer.skip", {
         currentChargeDate: formatDate(nextChargeAt),
@@ -76,58 +110,54 @@ function tooMuchOffers(subscription: Subscription): Offer[] {
         nextChargeDate: formatDate(addDays(nextChargeAt, intervalDays)),
       }),
     },
-    ...LONGER_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
-      const patch = frequencyPatch(subscription, days);
+    ...OFFERED_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
+      const change = frequencyChange(base, days);
       return {
         id: `every-${days}`,
         kind: "change",
-        patch,
+        change,
         label: t("tooMuchProductOffer.frequency", {
           days,
           amount,
-          nextChargeDate: formatDate(patch.nextChargeAt ?? nextChargeAt),
+          nextChargeDate: formatDate(change.patch.nextChargeAt ?? nextChargeAt),
         }),
       };
     }),
   ];
 }
 
-function costOffers(subscription: Subscription): Offer[] {
+function costOffers(subscription: Subscription, base: FrequencyBase): Offer[] {
   const { nextChargeAt, nextChargeTotalCents, intervalDays, items } = subscription;
   if (!nextChargeAt || nextChargeTotalCents === null) return [];
-  const monthlyCents = (days: number) => Math.round((nextChargeTotalCents * DAYS_IN_MONTH) / days);
 
   const quantityOffers = items
     .filter((item) => item.quantity > 1)
     .map((item): Offer => {
-      const patch = withItems(
-        subscription,
-        items.map((other) => (other.sku === item.sku ? { ...other, quantity: other.quantity - 1 } : other)),
-      );
+      const change = quantityChange(subscription, { [item.sku]: item.quantity - 1 });
       return {
         id: `reduce-${item.sku}`,
         kind: "change",
-        patch,
+        change,
         label: t("tooExpensiveOffer.reduceQuantity", {
           product: shortName(item.name),
           currentQuantity: item.quantity,
           newQuantity: item.quantity - 1,
-          ...nextChargeValues({ ...subscription, ...patch }),
+          ...nextChargeValues({ ...subscription, ...change.patch }),
         }),
       };
     });
 
-  const frequencyOffers = LONGER_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
-    const patch = frequencyPatch(subscription, days);
+  const frequencyOffers = OFFERED_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
+    const change = frequencyChange(base, days);
     return {
       id: `every-${days}`,
       kind: "change",
-      patch,
+      change,
       label: t("tooExpensiveOffer.frequency", {
         days,
-        monthlyAmount: formatCents(monthlyCents(days)),
-        currentMonthlyAmount: formatCents(monthlyCents(intervalDays)),
-        nextChargeDate: formatDate(patch.nextChargeAt ?? nextChargeAt),
+        monthlyAmount: formatCents(monthlyCents(nextChargeTotalCents, days)),
+        currentMonthlyAmount: formatCents(monthlyCents(nextChargeTotalCents, intervalDays)),
+        nextChargeDate: formatDate(change.patch.nextChargeAt ?? nextChargeAt),
       }),
     };
   });
@@ -155,7 +185,7 @@ export function swapOffers(subscription: Subscription, replaced: SubscriptionIte
     return {
       id: `swap-${product.sku}`,
       kind: "change",
-      patch,
+      change: { kind: "products", patch },
       label: t("swapOffer.replace", {
         product: shortName(replaced.name),
         replacement: shortName(product.name),
@@ -166,15 +196,15 @@ export function swapOffers(subscription: Subscription, replaced: SubscriptionIte
 }
 
 /** Whether a reason has anything to offer; if not, the flow goes straight to the final confirmation. */
-export function hasOffers(reason: CancelReason, subscription: Subscription) {
-  if (reason === "too-much") return tooMuchOffers(subscription).length > 0;
-  if (reason === "cost") return costOffers(subscription).length > 0;
+export function hasOffers(reason: CancelReason, subscription: Subscription, base: FrequencyBase) {
+  if (reason === "too-much") return tooMuchOffers(subscription, base).length > 0;
+  if (reason === "cost") return costOffers(subscription, base).length > 0;
   if (reason === "different") return swappableItems(subscription).length > 0;
   return false;
 }
 
-export function offersFor(reason: CancelReason, subscription: Subscription): Offer[] {
-  if (reason === "too-much") return tooMuchOffers(subscription);
-  if (reason === "cost") return costOffers(subscription);
+export function offersFor(reason: CancelReason, subscription: Subscription, base: FrequencyBase): Offer[] {
+  if (reason === "too-much") return tooMuchOffers(subscription, base);
+  if (reason === "cost") return costOffers(subscription, base);
   return [];
 }

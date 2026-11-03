@@ -17,6 +17,13 @@ export const skipFlow = {
   skipConflict: {
     body: { en: "We didn't skip anything because your subscription was updated elsewhere. Skip the {currentChargeDate} shipment? Your next charge would be {amount} on {nextChargeDate}." },
   },
+  changeNotKept: {
+    frequency: { en: "Your change to ship every {days} days wasn't kept." },
+    products: { en: "Your changes to your products weren't kept." },
+    cancel: { en: "Your cancellation wasn't kept." },
+    resume: { en: "Your request to resume wasn't kept." },
+    restart: { en: "Your request to restart wasn't kept." },
+  },
   skipFailure: {
     body: { en: "We couldn't skip your shipment. Your next charge is still {amount} on {currentChargeDate}. Please try again." },
     retry: { en: "Try again" },

@@ -28,6 +28,7 @@ export const cancelFlow = {
   cancelOffer: {
     legend: { en: "Options instead of cancelling" },
     apply: { en: "Apply this option" },
+    selectHint: { en: "Select an option to apply it." },
     continueToCancel: { en: "Continue to cancel" },
   },
   cancelConfirm: {
