@@ -12,6 +12,7 @@ import {
   swapOffers,
   swappableItems,
   type CancelReason,
+  type FrequencyBase,
   type Offer,
   type SubscriptionChange,
 } from "./subscriptionChanges";
@@ -22,6 +23,7 @@ import type { SubscriptionControls } from "./useSubscription";
 
 interface CancelFlowProps {
   subscription: Subscription;
+  frequencyBase: FrequencyBase;
   controls: SubscriptionControls;
   onApply: (change: SubscriptionChange) => void;
   onSkipped: (updated: Subscription) => void;
@@ -57,6 +59,7 @@ const STEP_TITLES: Record<Exclude<Step, "offer">, TitleKey> = {
 
 export function CancelFlow({
   subscription,
+  frequencyBase,
   controls,
   onApply,
   onSkipped,
@@ -89,7 +92,7 @@ export function CancelFlow({
   const title = titleKey ? t(titleKey) : "";
 
   function chooseReason(chosen: CancelReason) {
-    const showsOffers = hasOffers(chosen, subscription);
+    const showsOffers = hasOffers(chosen, subscription, frequencyBase);
     track("cancel_reason_selected", { subscriptionId, reason: chosen });
     if (showsOffers) track("cancel_offer_shown", { subscriptionId, reason: chosen });
     setReason(chosen);
@@ -133,6 +136,7 @@ export function CancelFlow({
         <OfferStep
           reason={reason}
           subscription={subscription}
+          frequencyBase={frequencyBase}
           onChoose={(offer) => chooseOffer(offer, reason)}
           footer={continueToCancel}
         />
@@ -178,17 +182,18 @@ export function CancelFlow({
 interface OfferStepProps {
   reason: CancelReason;
   subscription: Subscription;
+  frequencyBase: FrequencyBase;
   onChoose: (offer: Offer) => void;
   footer: ReactNode;
 }
 
-function OfferStep({ reason, subscription, onChoose, footer }: OfferStepProps) {
+function OfferStep({ reason, subscription, frequencyBase, onChoose, footer }: OfferStepProps) {
   const replaceable = swappableItems(subscription);
   const [replacedSku, setReplacedSku] = useState(replaceable[0]?.sku);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const replaced = replaceable.find((item) => item.sku === replacedSku);
-  const offers = reason === "different" ? (replaced ? swapOffers(subscription, replaced) : []) : offersFor(reason, subscription);
+  const offers = reason === "different" ? (replaced ? swapOffers(subscription, replaced) : []) : offersFor(reason, subscription, frequencyBase);
   const selected = offers.find((offer) => offer.id === selectedId);
   const hintId = useId();
 

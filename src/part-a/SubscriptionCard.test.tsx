@@ -224,6 +224,7 @@ describe("cancel flow", () => {
     expect(within(dialog()).getByRole("heading", { name: t("tooMuchProductOffer.title") })).toBeVisible();
     expectOffers([
       t("tooMuchProductOffer.skip", { currentChargeDate: "November 8", amount: "$101.87", nextChargeDate: "December 8" }),
+      t("tooMuchProductOffer.frequency", { days: 45, amount: "$101.87", nextChargeDate: "November 23" }),
       t("tooMuchProductOffer.frequency", { days: 60, amount: "$101.87", nextChargeDate: "December 8" }),
       t("tooMuchProductOffer.frequency", { days: 90, amount: "$101.87", nextChargeDate: "January 7" }),
     ]);
@@ -237,6 +238,7 @@ describe("cancel flow", () => {
     expect(within(dialog()).getByRole("heading", { name: t("tooExpensiveOffer.title") })).toBeVisible();
     expectOffers([
       t("tooExpensiveOffer.reduceQuantity", { product: "Multivitamin", currentQuantity: 2, newQuantity: 1, amount: "$63.67", chargeDate: "November 8" }),
+      t("tooExpensiveOffer.frequency", { days: 45, monthlyAmount: "$67.91", currentMonthlyAmount: "$101.87", nextChargeDate: "November 23" }),
       t("tooExpensiveOffer.frequency", { days: 60, monthlyAmount: "$50.94", currentMonthlyAmount: "$101.87", nextChargeDate: "December 8" }),
       t("tooExpensiveOffer.frequency", { days: 90, monthlyAmount: "$33.96", currentMonthlyAmount: "$101.87", nextChargeDate: "January 7" }),
     ]);
@@ -270,6 +272,47 @@ describe("cancel flow", () => {
     expect(within(dialog()).getByRole("heading", { name: t("cancelConfirm.title") })).toBeVisible();
     expect(within(dialog()).queryByRole("radio")).not.toBeInTheDocument();
     expect(dialog()).toHaveTextContent("Your November 8 shipment");
+  });
+
+  it("only offers intervals longer than the current one", async () => {
+    const user = await renderCard({ ...active, intervalDays: 45 });
+
+    await chooseCancelReason(user, "cancelReason.tooMuchProduct");
+
+    expectOffers([
+      t("tooMuchProductOffer.skip", { currentChargeDate: "November 8", amount: "$101.87", nextChargeDate: "December 23" }),
+      t("tooMuchProductOffer.frequency", { days: 60, amount: "$101.87", nextChargeDate: "November 23" }),
+      t("tooMuchProductOffer.frequency", { days: 90, amount: "$101.87", nextChargeDate: "December 23" }),
+    ]);
+  });
+
+  it("calculates offers from the date without any frequency change after the plan was shortened", async () => {
+    const user = await renderCard({ ...active, intervalDays: 60 });
+    await user.click(pageButton(t("actions.changePlan")));
+    await user.click(within(dialog()).getByRole("radio", { name: /^Every 30 days/ }));
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
+
+    await chooseCancelReason(user, "cancelReason.tooMuchProduct");
+
+    expectOffers([
+      t("tooMuchProductOffer.skip", { currentChargeDate: "November 8", amount: "$101.87", nextChargeDate: "December 8" }),
+      t("tooMuchProductOffer.frequency", { days: 45, amount: "$101.87", nextChargeDate: "November 8" }),
+      t("tooMuchProductOffer.frequency", { days: 60, amount: "$101.87", nextChargeDate: "November 8" }),
+      t("tooMuchProductOffer.frequency", { days: 90, amount: "$101.87", nextChargeDate: "December 8" }),
+    ]);
+  });
+
+  it("applies a 45-day offer in one tap, without opening the plan editor", async () => {
+    const user = await renderCard(active);
+    await chooseCancelReason(user, "cancelReason.tooExpensive");
+
+    await user.click(within(dialog()).getByRole("radio", { name: /Ship every 45 days/ }));
+    await user.click(dialogButton(t("cancelOffer.apply")));
+    await waitForDialogToClose();
+
+    expect(focusedElement()).toHaveTextContent(t("cancelOutcome.offerApplied", { amount: "$101.87", chargeDate: "November 23" }));
+    expect(screen.getByRole("region", { name: t("nextCharge.heading") })).toHaveTextContent("Ships every 45 days");
   });
 
   it("finishes in 3 taps", async () => {

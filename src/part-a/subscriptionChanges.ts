@@ -29,7 +29,7 @@ export const MAX_QUANTITY = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_MONTH = 30;
 const REACTIVATION_DELAY_DAYS = 3;
-const LONGER_INTERVALS = [60, 90];
+const OFFERED_INTERVALS = [45, 60, 90];
 /** The catalog only lists a bundle's contents in its name. */
 const BUNDLE_CONTENTS: Record<string, string[]> = {
   "NW-ESSENTIALS": ["NW-VITD-60", "NW-MULTI-30", "NW-MAG-90"],
@@ -94,12 +94,7 @@ export function quantityChange(subscription: Subscription, quantities: Record<st
   };
 }
 
-function frequencyPatch(subscription: Subscription, days: number): SubscriptionPatch {
-  const { nextChargeAt, intervalDays } = subscription;
-  return { intervalDays: days, nextChargeAt: nextChargeAt && addDays(nextChargeAt, days - intervalDays) };
-}
-
-function tooMuchOffers(subscription: Subscription): Offer[] {
+function tooMuchOffers(subscription: Subscription, base: FrequencyBase): Offer[] {
   const { nextChargeAt, nextChargeTotalCents, intervalDays } = subscription;
   if (!nextChargeAt || nextChargeTotalCents === null) return [];
   const amount = formatCents(nextChargeTotalCents);
@@ -113,58 +108,54 @@ function tooMuchOffers(subscription: Subscription): Offer[] {
         nextChargeDate: formatDate(addDays(nextChargeAt, intervalDays)),
       }),
     },
-    ...LONGER_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
-      const patch = frequencyPatch(subscription, days);
+    ...OFFERED_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
+      const change = frequencyChange(base, days);
       return {
         id: `every-${days}`,
         kind: "change",
-        change: { kind: "frequency", patch },
+        change,
         label: t("tooMuchProductOffer.frequency", {
           days,
           amount,
-          nextChargeDate: formatDate(patch.nextChargeAt ?? nextChargeAt),
+          nextChargeDate: formatDate(change.patch.nextChargeAt ?? nextChargeAt),
         }),
       };
     }),
   ];
 }
 
-function costOffers(subscription: Subscription): Offer[] {
+function costOffers(subscription: Subscription, base: FrequencyBase): Offer[] {
   const { nextChargeAt, nextChargeTotalCents, intervalDays, items } = subscription;
   if (!nextChargeAt || nextChargeTotalCents === null) return [];
-  const monthlyCents = (days: number) => Math.round((nextChargeTotalCents * DAYS_IN_MONTH) / days);
 
   const quantityOffers = items
     .filter((item) => item.quantity > 1)
     .map((item): Offer => {
-      const patch = withItems(
-        subscription,
-        items.map((other) => (other.sku === item.sku ? { ...other, quantity: other.quantity - 1 } : other)),
-      );
+      const change = quantityChange(subscription, { [item.sku]: item.quantity - 1 });
       return {
         id: `reduce-${item.sku}`,
         kind: "change",
-        change: { kind: "products", patch },
+        change,
         label: t("tooExpensiveOffer.reduceQuantity", {
           product: shortName(item.name),
           currentQuantity: item.quantity,
           newQuantity: item.quantity - 1,
-          ...nextChargeValues({ ...subscription, ...patch }),
+          ...nextChargeValues({ ...subscription, ...change.patch }),
         }),
       };
     });
 
-  const frequencyOffers = LONGER_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
-    const patch = frequencyPatch(subscription, days);
+  const frequencyOffers = OFFERED_INTERVALS.filter((days) => days > intervalDays).map((days): Offer => {
+    const change = frequencyChange(base, days);
     return {
       id: `every-${days}`,
       kind: "change",
-      change: { kind: "frequency", patch },
+      change,
       label: t("tooExpensiveOffer.frequency", {
         days,
-        monthlyAmount: formatCents(monthlyCents(days)),
-        currentMonthlyAmount: formatCents(monthlyCents(intervalDays)),
-        nextChargeDate: formatDate(patch.nextChargeAt ?? nextChargeAt),
+        monthlyAmount: formatCents(monthlyCents(nextChargeTotalCents, days)),
+        currentMonthlyAmount: formatCents(monthlyCents(nextChargeTotalCents, intervalDays)),
+        nextChargeDate: formatDate(change.patch.nextChargeAt ?? nextChargeAt),
       }),
     };
   });
@@ -203,15 +194,15 @@ export function swapOffers(subscription: Subscription, replaced: SubscriptionIte
 }
 
 /** Whether a reason has anything to offer; if not, the flow goes straight to the final confirmation. */
-export function hasOffers(reason: CancelReason, subscription: Subscription) {
-  if (reason === "too-much") return tooMuchOffers(subscription).length > 0;
-  if (reason === "cost") return costOffers(subscription).length > 0;
+export function hasOffers(reason: CancelReason, subscription: Subscription, base: FrequencyBase) {
+  if (reason === "too-much") return tooMuchOffers(subscription, base).length > 0;
+  if (reason === "cost") return costOffers(subscription, base).length > 0;
   if (reason === "different") return swappableItems(subscription).length > 0;
   return false;
 }
 
-export function offersFor(reason: CancelReason, subscription: Subscription): Offer[] {
-  if (reason === "too-much") return tooMuchOffers(subscription);
-  if (reason === "cost") return costOffers(subscription);
+export function offersFor(reason: CancelReason, subscription: Subscription, base: FrequencyBase): Offer[] {
+  if (reason === "too-much") return tooMuchOffers(subscription, base);
+  if (reason === "cost") return costOffers(subscription, base);
   return [];
 }

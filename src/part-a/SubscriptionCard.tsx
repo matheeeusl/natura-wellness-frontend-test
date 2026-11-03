@@ -138,9 +138,10 @@ export function SubscriptionCard() {
         />
       )}
 
-      {subscription && openDialog === "cancel" && (
+      {subscription && frequencyBase && openDialog === "cancel" && (
         <CancelFlow
           subscription={subscription}
+          frequencyBase={frequencyBase}
           controls={controls}
           onApply={(change) => {
             applyChange(change);
