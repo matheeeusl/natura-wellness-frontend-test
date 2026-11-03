@@ -7,7 +7,7 @@ import { FrequencyOptions } from "./FrequencyOptions";
 import { shortName } from "./format";
 import { QuantityStepper } from "./QuantityStepper";
 import { frequencyChange, nextChargeValues, quantityChange, type FrequencyBase, type SubscriptionChange } from "./subscriptionChanges";
-import { primaryButton } from "./ui";
+import { primaryButton, secondaryButton } from "./ui";
 
 interface PlanEditorProps {
   subscription: Subscription;
@@ -69,6 +69,9 @@ export function PlanEditor({ subscription, frequencyBase, onSave, transition, on
           )}
           <button type="submit" className={primaryButton} aria-disabled={!hasChanges} aria-describedby={hasChanges ? undefined : hintId}>
             {t("planEditor.save")}
+          </button>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("resumeConfirm.dismiss")}
           </button>
         </div>
       </form>

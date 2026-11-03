@@ -1009,6 +1009,17 @@ describe("changing the plan", () => {
     expect(nextCharge()).toHaveTextContent("Ships every 30 days");
   });
 
+  it("closes without changing anything from Not now", async () => {
+    const user = await renderCard(active);
+    await openEditor(user);
+    await chooseFrequency(user, 90);
+    await user.click(dialogButton(t("resumeConfirm.dismiss")));
+    await waitForDialogToClose();
+
+    expect(nextCharge()).toHaveTextContent("on November 8");
+    expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+  });
+
   it("keeps the charge date when the interval gets shorter", async () => {
     const user = await renderCard({ ...active, intervalDays: 60 });
     await openEditor(user);
