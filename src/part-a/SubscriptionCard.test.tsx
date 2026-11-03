@@ -1076,6 +1076,138 @@ describe("changing the plan", () => {
     }
   });
 
+  describe("quantity", () => {
+    const increase = (product: string) => dialogButton(t("planEditor.increaseQuantity", { product }));
+    const decrease = (product: string) => dialogButton(t("planEditor.decreaseQuantity", { product }));
+    const quantityGroup = (product: string) => within(dialog()).getByRole("group", { name: t("planEditor.quantityLabel", { product }) });
+
+    it("previews the new total and only applies it after saving", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+      await user.click(increase("Vitamin D"));
+
+      expect(quantityGroup("Vitamin D")).toHaveTextContent("2");
+      expect(dialog()).toHaveAccessibleDescription(preview("$127.33", "November 8"));
+      expect(nextCharge()).toHaveTextContent("$101.87");
+
+      await user.click(dialogButton(t("planEditor.save")));
+      await waitForDialogToClose();
+
+      expect(focusedElement()).toHaveTextContent(t("cancelOutcome.offerApplied", { amount: "$127.33", chargeDate: "November 8" }));
+      expect(nextCharge()).toHaveTextContent("$127.33");
+      expect(screen.getByText(t("savings.perShipment", { amount: "$22.47" }))).toBeInTheDocument();
+      expect(screen.getAllByText(t("products.quantity", { quantity: 2 }))).toHaveLength(2);
+    });
+
+    it("updates each frequency's monthly cost with the draft quantity", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+      await user.click(increase("Vitamin D"));
+
+      expect(within(dialog()).getByRole("radio", { name: t("planEditor.frequencyOption", { days: 60, monthlyAmount: "$63.67" }) })).toBeInTheDocument();
+    });
+
+    it("saves a frequency and a quantity changed together", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const user = await renderCard(active);
+      await openEditor(user);
+      await chooseFrequency(user, 60);
+      await user.click(increase("Vitamin D"));
+      expect(dialog()).toHaveAccessibleDescription(preview("$127.33", "December 8"));
+
+      await user.click(dialogButton(t("planEditor.save")));
+      await waitForDialogToClose();
+
+      expect(nextCharge()).toHaveTextContent("$127.33");
+      expect(nextCharge()).toHaveTextContent("on December 8");
+      expect(nextCharge()).toHaveTextContent("Ships every 60 days");
+      expect(log).toHaveBeenCalledWith("[track]", "plan_updated", { subscriptionId: "sub_8F2K41", changes: ["frequency", "products"] });
+    });
+
+    it("doesn't say the charge stays when shortening also changes the amount", async () => {
+      const user = await renderCard({ ...active, intervalDays: 60 });
+      await openEditor(user);
+      await chooseFrequency(user, 30);
+      await user.click(increase("Vitamin D"));
+
+      expect(dialog()).toHaveAccessibleDescription(preview("$127.33", "November 8"));
+    });
+
+    it("stops at 1, with no way to remove a product, and keeps focus on the button", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+
+      const button = decrease("Vitamin D");
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      await user.click(button);
+
+      expect(quantityGroup("Vitamin D")).toHaveTextContent("1");
+      expect(focusedElement()).toBe(button);
+      expect(dialogButton(t("planEditor.save"))).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("stops at 10", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+
+      const button = increase("Vitamin D");
+      for (let press = 0; press < 12; press++) await user.click(button);
+
+      expect(quantityGroup("Vitamin D")).toHaveTextContent("10");
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(focusedElement()).toBe(button);
+    });
+
+    it("has nothing to save once a quantity is back where it started", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+      await user.click(increase("Vitamin D"));
+      await user.click(decrease("Vitamin D"));
+
+      expect(dialogButton(t("planEditor.save"))).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("doesn't report a lost change after the customer put a saved quantity back", async () => {
+      const user = await renderCard(active);
+      for (const stepper of [increase, decrease]) {
+        await openEditor(user);
+        await user.click(stepper("Vitamin D"));
+        await user.click(dialogButton(t("planEditor.save")));
+        await waitForDialogToClose();
+      }
+
+      skipMock.mockRejectedValueOnce(conflict());
+      getSubscriptionMock.mockResolvedValue({ ...active, items: [active.items[1]], updatedAt: REFETCHED_AT });
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+
+      expect(dialogStatus()).not.toHaveTextContent(/weren't kept/);
+    });
+
+    it("keeps a quantity through a 409 when only updatedAt changed, and drops it when the items changed", async () => {
+      const user = await renderCard(active);
+      await openEditor(user);
+      await user.click(increase("Vitamin D"));
+      await user.click(dialogButton(t("planEditor.save")));
+      await waitForDialogToClose();
+
+      skipMock.mockRejectedValueOnce(conflict());
+      getSubscriptionMock.mockResolvedValue({ ...active, updatedAt: REFETCHED_AT });
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+      expect(nextCharge()).toHaveTextContent("$127.33");
+      expect(dialogStatus()).not.toHaveTextContent(t("changeNotKept.products"));
+
+      skipMock.mockRejectedValueOnce(conflict());
+      getSubscriptionMock.mockResolvedValue({ ...active, items: [active.items[1]], nextChargeTotalCents: 7642, updatedAt: REFETCHED_AT });
+      await submitSkip(user);
+      await waitFor(() => expect(dialogStatus()).toHaveTextContent(t("changeNotKept.products")));
+      expect(nextCharge()).toHaveTextContent("$76.42");
+    });
+  });
+
   it("tracks a saved change, and nothing for a closed editor", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const user = await renderCard(active);

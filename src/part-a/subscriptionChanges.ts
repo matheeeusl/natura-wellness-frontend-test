@@ -23,6 +23,8 @@ export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: 
 export const SKIP_OFFER_ID = "skip";
 
 export const FREQUENCY_OPTIONS = [30, 45, 60, 90];
+export const MIN_QUANTITY = 1;
+export const MAX_QUANTITY = 10;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_MONTH = 30;
@@ -78,6 +80,17 @@ export function frequencyChange({ nextChargeAt, intervalDays }: FrequencyBase, d
   return {
     kind: "frequency",
     patch: { intervalDays: days, nextChargeAt: nextChargeAt && addDays(nextChargeAt, Math.max(days - intervalDays, 0)) },
+  };
+}
+
+/** `quantities` holds new quantities by SKU; items it doesn't list stay as they are. */
+export function quantityChange(subscription: Subscription, quantities: Record<string, number>): SubscriptionChange {
+  return {
+    kind: "products",
+    patch: withItems(
+      subscription,
+      subscription.items.map((item) => ({ ...item, quantity: quantities[item.sku] ?? item.quantity })),
+    ),
   };
 }
 

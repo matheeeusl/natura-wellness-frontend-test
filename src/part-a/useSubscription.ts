@@ -67,7 +67,7 @@ export function useSubscription() {
   }
 
   function applyChange(change: SubscriptionChange) {
-    if (server) setChanges(recordChange(changes, change, server));
+    if (server) setChanges((current) => recordChange(current, change, server));
   }
 
   return { subscription, frequencyBase, loadError, failedLoads, retryLoad, refresh, skip, applyChange };
