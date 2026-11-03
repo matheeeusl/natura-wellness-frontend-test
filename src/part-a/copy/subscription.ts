@@ -24,6 +24,7 @@ export const subscription = {
     title: { en: "Paused" },
     message: { en: "Your subscription is paused until {resumeDate}. You won't be charged while it's paused." },
     messageWithoutDate: { en: "Your subscription is paused. You won't be charged while it's paused." },
+    resumeInfo: { en: "It resumes automatically that day, with a charge of {amount}." },
   },
   cancelledBanner: {
     title: { en: "Cancelled" },

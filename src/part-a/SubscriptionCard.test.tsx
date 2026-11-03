@@ -900,6 +900,23 @@ describe("paused and cancelled subscriptions", () => {
     expectNoSkipAction();
   });
 
+  it("says a paused subscription resumes on its end date, and what it will charge", async () => {
+    await renderCard(paused);
+
+    const banner = screen.getByRole("heading", { name: t("pausedBanner.title") }).parentElement;
+    expect(banner).toHaveTextContent("Your subscription is paused until November 26. You won't be charged while it's paused.");
+    expect(banner).toHaveTextContent("It resumes automatically that day, with a charge of $101.87.");
+  });
+
+  it("promises no resume or amount when a paused subscription has no end date", async () => {
+    await renderCard({ ...paused, pausedUntil: null });
+
+    const banner = screen.getByRole("heading", { name: t("pausedBanner.title") }).parentElement;
+    expect(banner).toHaveTextContent(t("pausedBanner.messageWithoutDate"));
+    expect(banner).not.toHaveTextContent("resumes");
+    expect(banner).not.toHaveTextContent("$");
+  });
+
   it("never offers a skip on the cancelled page", async () => {
     await renderCard(cancelled);
 

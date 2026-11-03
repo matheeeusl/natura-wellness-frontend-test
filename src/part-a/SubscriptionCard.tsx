@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { totalAfterDiscount } from "../api/fixtures";
 import type { Subscription, SubscriptionItem } from "../api/types";
 import { CancelFlow } from "./CancelFlow";
 import { t } from "./copy/t";
@@ -188,11 +189,15 @@ function LoadingState({ slow }: { slow: boolean }) {
 }
 
 function StatusSummary({ subscription }: { subscription: Subscription }) {
-  const { status, nextChargeAt, nextChargeTotalCents, intervalDays, pausedUntil, cancelledAt } = subscription;
+  const { status, items, discountPercent, nextChargeAt, nextChargeTotalCents, intervalDays, pausedUntil, cancelledAt } = subscription;
 
   if (status === "paused") {
     return (
-      <Banner label={t("pausedBanner.title")} className="bg-amber-tint text-amber-ink">
+      <Banner
+        label={t("pausedBanner.title")}
+        className="bg-amber-tint text-amber-ink"
+        note={pausedUntil && t("pausedBanner.resumeInfo", { amount: formatCents(totalAfterDiscount(items, discountPercent)) })}
+      >
         {pausedUntil ? t("pausedBanner.message", { resumeDate: formatDate(pausedUntil) }) : t("pausedBanner.messageWithoutDate")}
       </Banner>
     );
@@ -219,11 +224,12 @@ function StatusSummary({ subscription }: { subscription: Subscription }) {
   );
 }
 
-function Banner({ label, className, children }: { label: string; className: string; children: ReactNode }) {
+function Banner({ label, className, note, children }: { label: string; className: string; note?: ReactNode; children: ReactNode }) {
   return (
     <section className={`rounded-2xl p-5 ${className}`}>
       <h2 className="font-display text-2xl font-semibold">{label}</h2>
       <p className="mt-2">{children}</p>
+      {note && <p className="mt-2">{note}</p>}
     </section>
   );
 }

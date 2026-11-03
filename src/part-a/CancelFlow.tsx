@@ -68,7 +68,7 @@ export function CancelFlow({
   transition,
   onClose,
 }: CancelFlowProps) {
-  // A paused subscription has no upcoming charge to change, so there's nothing to offer.
+  // The offers change an active subscription's next charge, so a paused one has nothing to offer.
   const [step, setStep] = useState<Step>(subscription.status === "active" ? "reason" : "confirm");
   const [reason, setReason] = useState<CancelReason | null>(null);
   const subscriptionId = subscription.id;
