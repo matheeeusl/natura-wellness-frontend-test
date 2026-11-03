@@ -4,6 +4,7 @@ import { copy } from "./copy";
 import { CheckCircleIcon, StarIcon } from "./icons";
 import { PurchaseOptions } from "./PurchaseOptions";
 import { QuantityStepper } from "./QuantityStepper";
+import { ReferenceOverlay } from "./ReferenceOverlay";
 
 export function BuyBox() {
   const [state, setState] = useState(initialState);
@@ -80,6 +81,8 @@ export function BuyBox() {
 
           {derived.finePrint && <p className="mt-[12.5px] text-[12px]/[18.5px] text-bb-muted">{derived.finePrint}</p>}
         </div>
+
+        <ReferenceOverlay />
       </main>
     </div>
   );
