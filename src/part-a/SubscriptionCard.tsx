@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Subscription, SubscriptionItem } from "../api/types";
 import { CancelFlow } from "./CancelFlow";
 import { t } from "./copy/t";
-import { Dialog, type DialogTransition } from "./Dialog";
+import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatCents, formatDate, shortName } from "./format";
 import { SkipPanel } from "./SkipPanel";
 import { cancelledPatch, nextChargeValues, reactivatedPatch, savingsPerShipmentCents } from "./subscriptionChanges";
@@ -25,6 +25,9 @@ export function SubscriptionCard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const loading = !subscription && !loadError;
+  const slowLoad = useSlowFlag(loading);
   const controls: SubscriptionControls = { refresh, skip };
 
   useEffect(() => {
@@ -49,13 +52,27 @@ export function SubscriptionCard() {
 
   return (
     <main className="mx-auto w-full max-w-lg px-4 py-6 sm:py-10">
-      <h1 className="font-display text-3xl font-semibold text-forest">{t("page.title")}</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="font-display text-3xl font-semibold text-forest outline-none">
+        {t("page.title")}
+      </h1>
 
-      {!subscription && !loadError && <LoadingState />}
+      <div role="status" className="sr-only">
+        {loading && (slowLoad ? t("loading.slow") : t("loading.message"))}
+        {subscription && t("loading.loaded")}
+      </div>
+
+      {loading && <LoadingState slow={slowLoad} />}
       {loadError === "failed" && (
         <div className="mt-6 rounded-2xl border border-line bg-white p-5">
           <p role="alert">{t("loadError.message")}</p>
-          <button type="button" className={`${primaryButton} mt-4`} onClick={retryLoad}>
+          <button
+            type="button"
+            className={`${primaryButton} mt-4`}
+            onClick={() => {
+              retryLoad();
+              headingRef.current?.focus();
+            }}
+          >
             {t("loadError.retry")}
           </button>
         </div>
@@ -69,7 +86,7 @@ export function SubscriptionCard() {
       {subscription && (
         <div className="mt-6 flex flex-col gap-4">
           {notice && (
-            <p ref={noticeRef} role="status" tabIndex={-1} className="rounded-xl bg-sage p-4 font-medium text-forest outline-none motion-safe:animate-content-in">
+            <p ref={noticeRef} tabIndex={-1} className="rounded-xl bg-sage p-4 font-medium text-forest outline-none motion-safe:animate-content-in">
               {notice}
             </p>
           )}
@@ -129,14 +146,11 @@ export function SubscriptionCard() {
   );
 }
 
-function LoadingState() {
-  const slow = useSlowFlag(true);
+function LoadingState({ slow }: { slow: boolean }) {
   return (
-    <div aria-busy="true" className="mt-6">
-      <div role="status" className={slow ? "mb-4 text-muted" : "sr-only"}>
-        {slow ? t("loading.slow") : t("loading.message")}
-      </div>
-      <div className="flex animate-pulse flex-col gap-4" aria-hidden="true">
+    <div className="mt-6" aria-hidden="true">
+      {slow && <p className="mb-4 text-muted">{t("loading.slow")}</p>}
+      <div className="flex flex-col gap-4 motion-safe:animate-pulse">
         <div className="h-36 rounded-2xl bg-stone-tint" />
         <div className="h-44 rounded-2xl bg-stone-tint" />
       </div>
@@ -276,7 +290,7 @@ function ReactivateDialog({ subscription, onConfirm, transition, onClose }: Reac
   const nextCharge = nextChargeValues({ ...subscription, ...reactivatedPatch(subscription) });
   return (
     <Dialog title={t(paused ? "resumeConfirm.title" : "restartConfirm.title")} transition={transition} onClose={onClose}>
-      <p className="text-muted">{paused ? t("resumeConfirm.body", nextCharge) : t("restartConfirm.body", nextCharge)}</p>
+      <p id={DIALOG_DESCRIPTION_ID} className="text-muted">{paused ? t("resumeConfirm.body", nextCharge) : t("restartConfirm.body", nextCharge)}</p>
       <div className="mt-5 flex flex-col gap-2">
         <button type="button" className={primaryButton} onClick={onConfirm}>
           {t(paused ? "resumeConfirm.confirm" : "restartConfirm.confirm")}

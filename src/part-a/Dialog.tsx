@@ -10,22 +10,28 @@ interface DialogProps {
   title: string;
   /** Blocks closing while a request is running. */
   busy?: boolean;
+  /** False when the dialog has no element with DIALOG_DESCRIPTION_ID. */
+  hasDescription?: boolean;
   transition: DialogTransition;
   onClose: () => void;
   children: ReactNode;
 }
 
+/** The element holding a dialog's main message. Only one dialog is open at a time. */
+export const DIALOG_DESCRIPTION_ID = "dialog-description";
+
 /** Matches the longest exit animation in index.css. */
 const EXIT_MS = 180;
 
 /** Bottom sheet on phones, centered modal from the `sm` breakpoint up. Mount it to open; set `closing` to animate out. */
-export function Dialog({ title, busy = false, transition, onClose, children }: DialogProps) {
+export function Dialog({ title, busy = false, hasDescription = true, transition, onClose, children }: DialogProps) {
   const { closing, onExited } = transition;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<Element | null>(null);
   const titleId = useId();
+  const describedBy = hasDescription ? DIALOG_DESCRIPTION_ID : undefined;
   const [contentHeight, setContentHeight] = useState<number>();
 
   // Data can update as the dialog closes, so keep showing what the customer just acted on.
@@ -71,6 +77,7 @@ export function Dialog({ title, busy = false, transition, onClose, children }: D
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
+      aria-describedby={describedBy}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -84,7 +91,7 @@ export function Dialog({ title, busy = false, transition, onClose, children }: D
     >
       <div inert={closing}>
         <div className="mb-3 flex items-start justify-between gap-4">
-          <h2 ref={titleRef} id={titleId} tabIndex={-1} className="font-display text-2xl leading-tight font-semibold text-forest outline-none">
+          <h2 ref={titleRef} id={titleId} tabIndex={-1} aria-describedby={describedBy} className="font-display text-2xl leading-tight font-semibold text-forest outline-none">
             {shown.title}
           </h2>
           <button
@@ -92,7 +99,7 @@ export function Dialog({ title, busy = false, transition, onClose, children }: D
             aria-label={t("dialog.close")}
             disabled={busy}
             onClick={onClose}
-            className="-mt-1 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-2xl text-muted transition-colors hover:bg-sage disabled:opacity-40"
+            className="-mt-1 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-2xl text-muted transition-[background-color] hover:bg-sage disabled:opacity-40"
           >
             <span aria-hidden="true">&times;</span>
           </button>

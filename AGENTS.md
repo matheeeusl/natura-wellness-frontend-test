@@ -15,6 +15,7 @@ Vite + React + TypeScript skills test. Two parts:
 - Dev: npm run dev
 - Typecheck: npx tsc --noEmit
 - Build: npm run build
+- Test: npm run test
 
 # Working style
 - Show a plan before large changes. Keep responses short; no recap of the diff.

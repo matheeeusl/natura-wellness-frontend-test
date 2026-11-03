@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { Subscription } from "../api/types";
 import { t, type CopyKey } from "./copy/t";
-import { Dialog, type DialogTransition } from "./Dialog";
+import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatDate, shortName } from "./format";
 import { SkipPanel } from "./SkipPanel";
 import {
@@ -72,10 +72,10 @@ export function CancelFlow({ subscription, controls, onApply, onSkipped, onCance
   );
 
   return (
-    <Dialog title={title} busy={skip.busy} transition={transition} onClose={onClose}>
+    <Dialog title={title} busy={skip.busy} hasDescription={step !== "offer"} transition={transition} onClose={onClose}>
       {step === "reason" && (
         <>
-          <p className="text-muted">{t("cancelReason.body")}</p>
+          <p id={DIALOG_DESCRIPTION_ID} className="text-muted">{t("cancelReason.body")}</p>
           <ul className="mt-4 flex flex-col gap-2">
             {REASONS.map(({ id, labelKey }) => (
               <li key={id}>
@@ -109,7 +109,7 @@ export function CancelFlow({ subscription, controls, onApply, onSkipped, onCance
 
       {step === "confirm" && (
         <>
-          <p className="text-muted">
+          <p id={DIALOG_DESCRIPTION_ID} className="text-muted">
             {subscription.nextChargeAt
               ? t("cancelConfirm.body", { shipmentDate: formatDate(subscription.nextChargeAt) })
               : t("cancelConfirm.bodyWithoutShipment")}
@@ -143,6 +143,7 @@ function OfferStep({ reason, subscription, onChoose, footer }: OfferStepProps) {
   const replaced = replaceable.find((item) => item.sku === replacedSku);
   const offers = reason === "different" ? (replaced ? swapOffers(subscription, replaced) : []) : offersFor(reason, subscription);
   const selected = offers.find((offer) => offer.id === selectedId);
+  const hintId = useId();
 
   return (
     <form
@@ -187,7 +188,12 @@ function OfferStep({ reason, subscription, onChoose, footer }: OfferStepProps) {
       </fieldset>
 
       <div className="mt-5 flex flex-col gap-2">
-        <button type="submit" className={primaryButton} disabled={!selected}>
+        {!selected && (
+          <p id={hintId} className="text-sm text-muted">
+            {t("cancelOffer.selectHint")}
+          </p>
+        )}
+        <button type="submit" className={primaryButton} aria-disabled={!selected} aria-describedby={selected ? undefined : hintId}>
           {t("cancelOffer.apply")}
         </button>
         {footer}

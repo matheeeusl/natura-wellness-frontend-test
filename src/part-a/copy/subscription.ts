@@ -7,6 +7,7 @@ export const subscription = {
   loading: {
     message: { en: "Loading your subscription." },
     slow: { en: "Still loading your subscription. This can take a few seconds." },
+    loaded: { en: "Subscription loaded." },
   },
   loadError: {
     message: { en: "We couldn't load your subscription. Please try again." },

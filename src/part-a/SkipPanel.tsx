@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { Subscription } from "../api/types";
 import { t } from "./copy/t";
+import { DIALOG_DESCRIPTION_ID } from "./Dialog";
 import { formatCents, formatDate } from "./format";
 import { addDays } from "./subscriptionChanges";
 import { primaryButton, secondaryButton } from "./ui";
@@ -52,10 +53,16 @@ export function SkipPanel({ skip, subscription, onKeep, footer }: SkipPanelProps
   const slow = useSlowFlag(skip.phase === "skipping");
   const inactive = !skip.busy && skip.failure === "inactive";
   const showsFailure = !skip.busy && skip.failure !== null;
+  const secondaryRef = useRef<HTMLButtonElement>(null);
+
+  // The primary button goes away when skipping is no longer possible, so keep focus in the dialog.
+  useEffect(() => {
+    if (inactive) secondaryRef.current?.focus();
+  }, [inactive]);
 
   return (
     <>
-      <div role="status" className={showsFailure ? "text-danger" : "text-muted"}>
+      <div id={DIALOG_DESCRIPTION_ID} role="status" className={showsFailure ? "text-danger" : "text-muted"}>
         <p>{skipMessage(skip, subscription)}</p>
         {slow && <p className="mt-2 text-muted">{t("skipProgress.slow")}</p>}
       </div>
@@ -64,13 +71,14 @@ export function SkipPanel({ skip, subscription, onKeep, footer }: SkipPanelProps
           <button
             type="button"
             className={primaryButton}
-            disabled={skip.busy}
+            // aria-disabled, not disabled, so keyboard focus stays here. useSkipShipment ignores repeat presses.
+            aria-disabled={skip.busy}
             onClick={skip.failure === "unknown" ? skip.recheck : skip.submit}
           >
             {primaryLabel(skip)}
           </button>
         )}
-        <button type="button" className={secondaryButton} disabled={skip.busy} onClick={onKeep}>
+        <button ref={secondaryRef} type="button" className={secondaryButton} disabled={skip.busy} onClick={onKeep}>
           {inactive ? t("skipFailure.close") : t("skipConfirm.keep")}
         </button>
         {footer}
