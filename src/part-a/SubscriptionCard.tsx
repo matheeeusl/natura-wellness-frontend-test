@@ -14,13 +14,15 @@ import { useSubscription, type SubscriptionControls } from "./useSubscription";
 
 type OpenDialog = "skip" | "cancel" | "reactivate";
 
+const MAX_LOAD_FAILURES_BEFORE_SUPPORT = 2;
+
 const skipSuccessMessage = (updated: Subscription) => {
   const { amount, chargeDate } = nextChargeValues(updated);
   return t("skipSuccess.message", { amount, nextChargeDate: chargeDate });
 };
 
 export function SubscriptionCard() {
-  const { subscription, loadError, retryLoad, refresh, skip, applyChange } = useSubscription();
+  const { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange } = useSubscription();
   const [openDialog, setOpenDialog] = useState<OpenDialog | null>(null);
   const [closingDialog, setClosingDialog] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export function SubscriptionCard() {
       {loading && <LoadingState slow={slowLoad} />}
       {loadError === "failed" && (
         <div className="mt-6 rounded-2xl border border-line bg-white p-5">
-          <p role="alert">{t("loadError.message")}</p>
+          <p role="alert">{failedLoads >= MAX_LOAD_FAILURES_BEFORE_SUPPORT ? t("loadError.repeated") : t("loadError.message")}</p>
           <button
             type="button"
             className={`${primaryButton} mt-4`}

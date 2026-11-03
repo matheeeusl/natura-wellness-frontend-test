@@ -11,6 +11,7 @@ export const subscription = {
   },
   loadError: {
     message: { en: "We couldn't load your subscription. Please try again." },
+    repeated: { en: "We still couldn't load your subscription. Try again in a few minutes. If this keeps happening, contact customer care." },
     retry: { en: "Try again" },
     notFound: { en: "We couldn't find this subscription. If you think this is a mistake, contact customer care." },
   },

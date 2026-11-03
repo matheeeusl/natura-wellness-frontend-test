@@ -314,6 +314,60 @@ describe("cancel flow", () => {
   });
 });
 
+describe("loading", () => {
+  const retry = () => screen.getByRole("button", { name: t("loadError.retry") });
+
+  it("adds the care line after a second failed load, and keeps Try again", async () => {
+    getSubscriptionMock.mockRejectedValue(serverError());
+    const user = userEvent.setup();
+    render(<SubscriptionCard />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("loadError.message"));
+    expect(screen.getByRole("alert")).not.toHaveTextContent("customer care");
+
+    await user.click(retry());
+    await waitFor(() => expect(getSubscriptionMock).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("loadError.repeated"));
+    expect(screen.getByRole("alert")).toHaveTextContent("contact customer care");
+    expect(retry()).toBeEnabled();
+  });
+
+  it("counts a timeout as a failed load", async () => {
+    getSubscriptionMock.mockRejectedValueOnce(serverError()).mockReturnValueOnce(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<SubscriptionCard />);
+
+    await screen.findByRole("alert");
+    await user.click(retry());
+    await waitFor(() => expect(getSubscriptionMock).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("loadError.repeated"));
+  });
+
+  it("recovers when a retry succeeds", async () => {
+    getSubscriptionMock.mockRejectedValueOnce(serverError()).mockRejectedValueOnce(serverError()).mockResolvedValue(active);
+    const user = userEvent.setup();
+    render(<SubscriptionCard />);
+
+    await screen.findByRole("alert");
+    await user.click(retry());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(t("loadError.repeated")));
+    await user.click(retry());
+
+    expect(await screen.findByRole("region", { name: t("nextCharge.heading") })).toHaveTextContent("$101.87");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("offers no retry when the subscription doesn't exist", async () => {
+    getSubscriptionMock.mockRejectedValue(new ApiError(404, "Subscription not found"));
+    render(<SubscriptionCard />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("loadError.notFound"));
+    expect(screen.queryByRole("button", { name: t("loadError.retry") })).not.toBeInTheDocument();
+  });
+});
+
 describe("requests that never return", () => {
   const never = <T,>() => new Promise<T>(() => {});
   const closeButtons = () => within(dialog()).getAllByRole("button", { name: t("dialog.close") });

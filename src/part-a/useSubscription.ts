@@ -13,6 +13,7 @@ export function useSubscription() {
   const [patch, setPatch] = useState<SubscriptionPatch>({});
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [failedLoads, setFailedLoads] = useState(0);
 
   useEffect(() => {
     let ignore = false;
@@ -21,7 +22,9 @@ export function useSubscription() {
         if (!ignore) setServer(loaded);
       })
       .catch((error: unknown) => {
-        if (!ignore) setLoadError(error instanceof ApiError && error.status === 404 ? "not-found" : "failed");
+        if (ignore) return;
+        setLoadError(error instanceof ApiError && error.status === 404 ? "not-found" : "failed");
+        setFailedLoads((failed) => failed + 1);
       });
     return () => {
       ignore = true;
@@ -66,7 +69,7 @@ export function useSubscription() {
     setPatch((current) => ({ ...current, ...change }));
   }
 
-  return { subscription, loadError, retryLoad, refresh, skip, applyChange };
+  return { subscription, loadError, failedLoads, retryLoad, refresh, skip, applyChange };
 }
 
 export type SubscriptionControls = Pick<ReturnType<typeof useSubscription>, "refresh" | "skip">;
