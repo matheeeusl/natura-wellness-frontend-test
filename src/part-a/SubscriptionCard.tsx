@@ -6,6 +6,7 @@ import { Dialog, DIALOG_DESCRIPTION_ID, type DialogTransition } from "./Dialog";
 import { formatCents, formatDate, shortName } from "./format";
 import { SkipPanel } from "./SkipPanel";
 import { cancelledPatch, nextChargeValues, reactivatedPatch, savingsPerShipmentCents } from "./subscriptionChanges";
+import { track } from "./track";
 import { primaryButton, secondaryButton, textButton } from "./ui";
 import { useSkipShipment } from "./useSkipShipment";
 import { useSlowFlag } from "./useSlowFlag";
@@ -35,6 +36,7 @@ export function SubscriptionCard() {
   }, [notice]);
 
   const open = (dialog: OpenDialog) => {
+    if (dialog === "cancel" && subscription) track("cancel_flow_opened", { subscriptionId: subscription.id });
     setNotice(null);
     setOpenDialog(dialog);
   };
@@ -105,7 +107,10 @@ export function SubscriptionCard() {
         <SkipDialog
           subscription={subscription}
           controls={controls}
-          onSkipped={(updated) => close(skipSuccessMessage(updated))}
+          onSkipped={(updated) => {
+            track("skip_completed", { subscriptionId: updated.id, source: "page" });
+            close(skipSuccessMessage(updated));
+          }}
           transition={transition}
           onClose={() => close()}
         />

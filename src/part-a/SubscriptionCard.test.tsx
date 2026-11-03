@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getSubscription, skipNextShipment } from "../api/mockApi";
@@ -305,6 +305,98 @@ describe("cancel flow", () => {
     await chooseCancelReason(user, reason);
 
     expect(dialogButton(t("cancelOffer.continueToCancel"))).toBeVisible();
+  });
+});
+
+describe("tracking", () => {
+  const trackedEvents = () => vi.mocked(console.log).mock.calls.map(([, event, payload]) => [event, payload]);
+  const subscriptionId = "sub_8F2K41";
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  it("tracks a skip from the page", async () => {
+    const user = await renderCard(active);
+    skipMock.mockResolvedValue(skipped);
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await waitForDialogToClose();
+
+    expect(trackedEvents()).toEqual([["skip_completed", { subscriptionId, source: "page" }]]);
+  });
+
+  it("does not track a skip that failed", async () => {
+    const user = await renderCard(active);
+    skipMock.mockRejectedValue(conflict());
+
+    await openSkipDialog(user);
+    await submitSkip(user);
+    await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+
+    expect(trackedEvents()).toEqual([]);
+  });
+
+  it("tracks an accepted offer from start to finish", async () => {
+    const user = await renderCard(active);
+
+    await chooseCancelReason(user, "cancelReason.tooExpensive");
+    await user.click(within(dialog()).getAllByRole("radio")[0]);
+    await user.click(dialogButton(t("cancelOffer.apply")));
+    await waitForDialogToClose();
+
+    expect(trackedEvents()).toEqual([
+      ["cancel_flow_opened", { subscriptionId }],
+      ["cancel_reason_selected", { subscriptionId, reason: "cost" }],
+      ["cancel_offer_shown", { subscriptionId, reason: "cost" }],
+      ["cancel_offer_accepted", { subscriptionId, reason: "cost", offerId: "reduce-NW-MULTI-30" }],
+    ]);
+  });
+
+  it("counts a skip offer as accepted only after the skip succeeds", async () => {
+    const user = await renderCard(active);
+    skipMock.mockResolvedValue(skipped);
+
+    await chooseCancelReason(user, "cancelReason.tooMuchProduct");
+    await user.click(within(dialog()).getAllByRole("radio")[0]);
+    await user.click(dialogButton(t("cancelOffer.apply")));
+    expect(trackedEvents().map(([event]) => event)).not.toContain("cancel_offer_accepted");
+
+    await submitSkip(user);
+    await waitForDialogToClose();
+
+    expect(trackedEvents().slice(-2)).toEqual([
+      ["cancel_offer_accepted", { subscriptionId, reason: "too-much", offerId: "skip" }],
+      ["skip_completed", { subscriptionId, source: "cancel_flow" }],
+    ]);
+  });
+
+  it("tracks a cancellation with and without a reason", async () => {
+    const user = await renderCard(active);
+
+    await chooseCancelReason(user, "cancelReason.other");
+    await user.click(dialogButton(t("cancelConfirm.confirm")));
+    await waitForDialogToClose();
+
+    expect(trackedEvents()).toEqual([
+      ["cancel_flow_opened", { subscriptionId }],
+      ["cancel_reason_selected", { subscriptionId, reason: "other" }],
+      ["cancel_completed", { subscriptionId, reason: "other" }],
+    ]);
+    cleanup();
+    vi.mocked(console.log).mockClear();
+
+    const second = await renderCard(active);
+    await second.click(pageButton(t("actions.cancel")));
+    await second.click(dialogButton(t("cancelOffer.continueToCancel")));
+    await second.click(dialogButton(t("cancelConfirm.confirm")));
+    await waitForDialogToClose();
+
+    expect(trackedEvents()).toEqual([
+      ["cancel_flow_opened", { subscriptionId }],
+      ["cancel_completed", { subscriptionId, reason: null }],
+    ]);
   });
 });
 

@@ -6,6 +6,7 @@ import { formatDate, shortName } from "./format";
 import { SkipPanel } from "./SkipPanel";
 import {
   hasOffers,
+  SKIP_OFFER_ID,
   offersFor,
   swapOffers,
   swappableItems,
@@ -13,6 +14,7 @@ import {
   type Offer,
   type SubscriptionPatch,
 } from "./subscriptionChanges";
+import { track } from "./track";
 import { primaryButton, secondaryButton, textButton } from "./ui";
 import { useSkipShipment } from "./useSkipShipment";
 import type { SubscriptionControls } from "./useSubscription";
@@ -55,14 +57,32 @@ export function CancelFlow({ subscription, controls, onApply, onSkipped, onCance
   // A paused subscription has no upcoming charge to change, so there's nothing to offer.
   const [step, setStep] = useState<Step>(subscription.status === "active" ? "reason" : "confirm");
   const [reason, setReason] = useState<CancelReason | null>(null);
-  const skip = useSkipShipment(controls, onSkipped);
+  const subscriptionId = subscription.id;
+  const skip = useSkipShipment(controls, (updated) => {
+    // A skip offer only counts as accepted once the skip goes through.
+    if (reason) track("cancel_offer_accepted", { subscriptionId, reason, offerId: SKIP_OFFER_ID });
+    track("skip_completed", { subscriptionId, source: "cancel_flow" });
+    onSkipped(updated);
+  });
 
   const titleKey = step === "offer" ? reason && OFFER_TITLES[reason] : STEP_TITLES[step];
   const title = titleKey ? t(titleKey) : "";
 
   function chooseReason(chosen: CancelReason) {
+    const showsOffers = hasOffers(chosen, subscription);
+    track("cancel_reason_selected", { subscriptionId, reason: chosen });
+    if (showsOffers) track("cancel_offer_shown", { subscriptionId, reason: chosen });
     setReason(chosen);
-    setStep(hasOffers(chosen, subscription) ? "offer" : "confirm");
+    setStep(showsOffers ? "offer" : "confirm");
+  }
+
+  function chooseOffer(offer: Offer, chosenReason: CancelReason) {
+    if (offer.kind === "skip") {
+      setStep("skip");
+      return;
+    }
+    track("cancel_offer_accepted", { subscriptionId, reason: chosenReason, offerId: offer.id });
+    onApply(offer.patch);
   }
 
   const continueToCancel = (
@@ -93,7 +113,7 @@ export function CancelFlow({ subscription, controls, onApply, onSkipped, onCance
         <OfferStep
           reason={reason}
           subscription={subscription}
-          onChoose={(offer) => (offer.kind === "skip" ? setStep("skip") : onApply(offer.patch))}
+          onChoose={(offer) => chooseOffer(offer, reason)}
           footer={continueToCancel}
         />
       )}
@@ -115,7 +135,14 @@ export function CancelFlow({ subscription, controls, onApply, onSkipped, onCance
               : t("cancelConfirm.bodyWithoutShipment")}
           </p>
           <div className="mt-5 flex flex-col gap-2">
-            <button type="button" className={primaryButton} onClick={onCancelled}>
+            <button
+              type="button"
+              className={primaryButton}
+              onClick={() => {
+                track("cancel_completed", { subscriptionId, reason });
+                onCancelled();
+              }}
+            >
               {t("cancelConfirm.confirm")}
             </button>
             <button type="button" className={secondaryButton} onClick={onClose}>

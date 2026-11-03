@@ -12,6 +12,8 @@ export type CancelReason = "too-much" | "cost" | "different" | "no-results" | "o
 
 export type Offer = { id: string; label: string } & ({ kind: "skip" } | { kind: "change"; patch: SubscriptionPatch });
 
+export const SKIP_OFFER_ID = "skip";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_MONTH = 30;
 const REACTIVATION_DELAY_DAYS = 3;
@@ -68,7 +70,7 @@ function tooMuchOffers(subscription: Subscription): Offer[] {
   const amount = formatCents(nextChargeTotalCents);
   return [
     {
-      id: "skip",
+      id: SKIP_OFFER_ID,
       kind: "skip",
       label: t("tooMuchProductOffer.skip", {
         currentChargeDate: formatDate(nextChargeAt),
