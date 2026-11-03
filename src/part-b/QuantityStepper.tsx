@@ -16,7 +16,7 @@ export function QuantityStepper({ quantity, atMin, atMax, onChange }: QuantitySt
     <div
       role="group"
       aria-label="Quantity"
-      className="flex h-14 w-32 shrink-0 items-center justify-between rounded-[11.5px] border border-bb-control-line bg-white"
+      className="flex h-14 w-32 shrink-0 items-center justify-between rounded-[12px] border border-bb-control-line bg-white"
     >
       <button
         type="button"

@@ -15,7 +15,7 @@ interface PurchaseOptionsProps {
 
 // The padding gives up what the thicker border takes, so the content doesn't move when selected.
 const optionCard = (selected: boolean) =>
-  `rounded-[13.5px] ${selected ? "border-2 border-bb-forest bg-bb-sage px-[19px]" : "border border-bb-option-line bg-white px-5"}`;
+  `rounded-[14px] ${selected ? "border-2 border-bb-forest bg-bb-sage px-[19px]" : "border border-bb-option-line bg-white px-5"}`;
 
 const optionLabel = "text-[16px]/[26px] font-semibold text-bb-ink";
 const optionPrice = "text-[18px]/[22.5px] font-semibold text-bb-ink";
@@ -86,7 +86,7 @@ export function PurchaseOptions({
                   id={frequencyId}
                   value={frequency}
                   onChange={(event) => onFrequencyChange(event.target.value)}
-                  className="block h-[33px] w-[115.5px] cursor-pointer appearance-none rounded-[7.5px] border border-bb-control-line bg-white pl-3 text-[14px] font-medium text-bb-ink"
+                  className="block h-[33px] w-[115.5px] cursor-pointer appearance-none rounded-[8px] border border-bb-control-line bg-white pl-3 text-[14px] font-medium text-bb-ink"
                 >
                   {copy.subscribe.frequencyOptions.map((value) => (
                     <option key={value}>{value}</option>

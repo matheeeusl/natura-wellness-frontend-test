@@ -13,7 +13,7 @@ export function BuyBox() {
   return (
     <div className="min-h-screen bg-bb-page">
       <main className="relative mx-auto grid max-w-[1200px] gap-8 px-4 pt-14 pb-14 lg:grid-cols-[540fr_468fr] lg:gap-16 lg:px-16">
-        <div className="flex aspect-square items-center justify-center overflow-hidden rounded-[19.5px] border border-bb-line bg-white">
+        <div className="mx-auto flex aspect-square w-full max-w-[480px] items-center justify-center overflow-hidden rounded-[20px] border border-bb-line bg-white lg:max-w-none">
           <img src="/product.jpg" alt="Vitamin D bottle, 60 softgels" width={1024} height={1024} className="w-[93%]" />
         </div>
 
@@ -60,7 +60,7 @@ export function BuyBox() {
             />
             <button
               type="button"
-              className="flex h-14 min-w-0 flex-1 items-center justify-center gap-[11px] rounded-[11.5px] bg-bb-forest text-base font-semibold text-white hover:bg-forest-dark"
+              className="flex h-14 min-w-0 flex-1 items-center justify-center gap-[11px] rounded-[12px] bg-bb-forest text-base font-semibold text-white hover:bg-forest-dark"
             >
               {copy.addToCart}
               <span aria-hidden="true" className="size-[3px] rounded-full bg-white/60" />
