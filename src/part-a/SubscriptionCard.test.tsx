@@ -917,6 +917,30 @@ describe("paused and cancelled subscriptions", () => {
     expect(banner).not.toHaveTextContent("$");
   });
 
+  describe("resuming early", () => {
+    const resumeAndExpectCharge = async (pausedUntil: string, chargeDate: string) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime("2026-11-03T12:00:00.000Z");
+      try {
+        const user = await renderCard({ ...paused, pausedUntil });
+        await user.click(pageButton(t("actions.resume")));
+        expect(dialog()).toHaveAccessibleDescription(`Your next charge will be $101.87 on ${chargeDate}.`);
+
+        await user.click(dialogButton(t("resumeConfirm.confirm")));
+        await waitForDialogToClose();
+        expect(screen.getByRole("region", { name: t("nextCharge.heading") })).toHaveTextContent(`on ${chargeDate}`);
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    it("charges 3 days from today when the pause ends later than that", () =>
+      resumeAndExpectCharge("2026-11-26T12:00:00.000Z", "November 6"));
+
+    it("charges on the pause end date when that comes first", () =>
+      resumeAndExpectCharge("2026-11-05T12:00:00.000Z", "November 5"));
+  });
+
   it("never offers a skip on the cancelled page", async () => {
     await renderCard(cancelled);
 

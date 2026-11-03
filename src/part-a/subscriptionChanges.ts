@@ -62,13 +62,19 @@ export const cancelledPatch = (): SubscriptionPatch => ({
   pausedUntil: null,
 });
 
+/** Resuming never charges later than the pause would have ended on its own. */
+function reactivationChargeAt({ pausedUntil }: Subscription) {
+  const delayed = addDays(new Date().toISOString(), REACTIVATION_DELAY_DAYS);
+  return pausedUntil && Date.parse(pausedUntil) < Date.parse(delayed) ? pausedUntil : delayed;
+}
+
 export const reactivatedPatch = (subscription: Subscription): SubscriptionPatch => ({
   status: "active",
   cancelledAt: null,
   pausedUntil: null,
   // The new date replaces any date a frequency change set, so it's based on the interval shown now.
   intervalDays: subscription.intervalDays,
-  nextChargeAt: addDays(new Date().toISOString(), REACTIVATION_DELAY_DAYS),
+  nextChargeAt: reactivationChargeAt(subscription),
   nextChargeTotalCents: totalAfterDiscount(subscription.items, subscription.discountPercent),
 });
 
