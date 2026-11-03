@@ -16,6 +16,22 @@
   --color-stone-tint: #ebe9e4;
   --color-danger: #9b2c1f;
 
+  /* Part B: measured from public/reference/buy-box.png. */
+  --color-bb-page: #fbf8f3;
+  --color-bb-forest: #17402f;
+  --color-bb-sage: #f3f6f2;
+  --color-bb-ink: #1c2420;
+  --color-bb-body: #4a5550;
+  --color-bb-muted: #6b7a70;
+  --color-bb-strike: #8a948e;
+  --color-bb-line: #e7e1d6;
+  --color-bb-option-line: #e1dbcf;
+  --color-bb-control-line: #cfd6d0;
+  --color-bb-radio: #9aa59e;
+  --color-bb-star: #d8a23a;
+  --color-bb-badge: #f6e7c4;
+  --color-bb-badge-ink: #7a5a12;
+
   --animate-sheet-in: sheet-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
   --animate-sheet-out: sheet-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
   --animate-modal-in: modal-in 200ms cubic-bezier(0.2, 0, 0, 1) both;
