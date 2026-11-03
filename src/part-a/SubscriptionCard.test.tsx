@@ -1056,7 +1056,11 @@ describe("changing the plan", () => {
     await saveFrequency(user, 90);
     expect(nextCharge()).toHaveTextContent("on January 7");
 
-    await saveFrequency(user, 45);
+    await openEditor(user);
+    await chooseFrequency(user, 45);
+    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "November 23"));
+    await user.click(dialogButton(t("planEditor.save")));
+    await waitForDialogToClose();
 
     expect(nextCharge()).toHaveTextContent("on November 23");
   });
@@ -1087,19 +1091,121 @@ describe("changing the plan", () => {
     await waitFor(() => expect(dialogStatus()).toHaveTextContent(t("changeNotKept.frequency", { days: 60 })));
   });
 
-  it("returns to the date a 30-day skip would give when shortening after a skip at 60 days", async () => {
-    const user = await renderCard(active);
-    await saveFrequency(user, 60);
-    skipMock.mockResolvedValue(skipped);
-    await openSkipDialog(user);
-    await submitSkip(user);
-    await waitForDialogToClose();
-    expect(nextCharge()).toHaveTextContent("on February 6");
+  describe("after a skip", () => {
+    async function skipAtSixtyDays(user: ReturnType<typeof userEvent.setup>) {
+      await saveFrequency(user, 60);
+      skipMock.mockResolvedValue(skipped);
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await waitForDialogToClose();
+      expect(nextCharge()).toHaveTextContent("on February 6");
+    }
 
-    await openEditor(user);
-    await chooseFrequency(user, 30);
+    it("doesn't move the charge earlier than the skip's date when shortening", async () => {
+      const user = await renderCard(active);
+      await skipAtSixtyDays(user);
 
-    expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "December 8"));
+      await openEditor(user);
+      await chooseFrequency(user, 30);
+      expect(dialog()).toHaveAccessibleDescription(
+        t("planEditor.previewChargeStays", { amount: "$101.87", chargeDate: "February 6", days: 30 }),
+      );
+      await user.click(dialogButton(t("planEditor.save")));
+      await waitForDialogToClose();
+
+      expect(nextCharge()).toHaveTextContent("on February 6");
+      expect(nextCharge()).toHaveTextContent("Ships every 30 days");
+    });
+
+    it("holds the skip's date in cancel flow offers too", async () => {
+      const user = await renderCard(active);
+      await skipAtSixtyDays(user);
+      await saveFrequency(user, 30);
+
+      await chooseCancelReason(user, "cancelReason.tooMuchProduct");
+
+      expect(within(dialog()).getByRole("radio", { name: /Ship every 45 days/ })).toHaveAccessibleName(
+        t("tooMuchProductOffer.frequency", { days: 45, amount: "$101.87", nextChargeDate: "February 6" }),
+      );
+    });
+
+    it("still restores the skip's date when no frequency had changed before the skip", async () => {
+      const user = await renderCard(active);
+      skipMock.mockResolvedValue(skipped);
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await waitForDialogToClose();
+
+      await saveFrequency(user, 60);
+      expect(nextCharge()).toHaveTextContent("on January 7");
+      await saveFrequency(user, 30);
+
+      expect(nextCharge()).toHaveTextContent("on December 8");
+    });
+
+    it("keeps the minimum when a refetch leaves the server's date alone", async () => {
+      const user = await renderCard(active);
+      await skipAtSixtyDays(user);
+
+      skipMock.mockRejectedValueOnce(conflict());
+      getSubscriptionMock.mockResolvedValue({ ...skipped, updatedAt: "2026-11-02T12:00:00.000Z" });
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+      await user.click(dialogButton(t("skipConfirm.keep")));
+      await waitForDialogToClose();
+
+      await openEditor(user);
+      await chooseFrequency(user, 30);
+      expect(dialog()).toHaveAccessibleDescription(
+        t("planEditor.previewChargeStays", { amount: "$101.87", chargeDate: "February 6", days: 30 }),
+      );
+    });
+
+    it("clears the minimum when a refetch changes the server's date", async () => {
+      const user = await renderCard(active);
+      await skipAtSixtyDays(user);
+
+      skipMock.mockRejectedValueOnce(conflict());
+      getSubscriptionMock.mockResolvedValue({ ...active, nextChargeAt: "2026-12-20T12:00:00.000Z", updatedAt: "2026-11-02T12:00:00.000Z" });
+      await openSkipDialog(user);
+      await submitSkip(user);
+      await within(dialog()).findByRole("button", { name: t("skipConfirm.confirm") });
+      await user.click(dialogButton(t("skipConfirm.keep")));
+      await waitForDialogToClose();
+      expect(nextCharge()).toHaveTextContent("on December 20");
+
+      await openEditor(user);
+      await chooseFrequency(user, 60);
+
+      expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "January 19"));
+    });
+
+    it("clears the minimum when a restart replaces the date", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime("2026-11-03T12:00:00.000Z");
+      try {
+        const user = await renderCard(active);
+        skipMock.mockResolvedValue(skipped);
+        await openSkipDialog(user);
+        await submitSkip(user);
+        await waitForDialogToClose();
+        await chooseCancelReason(user, "cancelReason.other");
+        await user.click(dialogButton(t("cancelConfirm.confirm")));
+        await waitForDialogToClose();
+        await user.click(pageButton(t("actions.restart")));
+        await user.click(dialogButton(t("restartConfirm.confirm")));
+        await waitForDialogToClose();
+        expect(nextCharge()).toHaveTextContent("on November 6");
+
+        await openEditor(user);
+        await chooseFrequency(user, 60);
+
+        expect(dialog()).toHaveAccessibleDescription(preview("$101.87", "December 6"));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("moves a restarted subscription's charge by the difference from the interval it restarted on", async () => {

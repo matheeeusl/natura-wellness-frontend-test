@@ -14,7 +14,10 @@ export interface SubscriptionChange {
 }
 
 /** The next charge and interval as they would be with no frequency change on top. */
-export type FrequencyBase = Pick<Subscription, "nextChargeAt" | "intervalDays">;
+export type FrequencyBase = Pick<Subscription, "nextChargeAt" | "intervalDays"> & {
+  /** The date a skip set. A frequency change can't move the charge earlier than this. */
+  minChargeAt: string | null;
+};
 
 export type CancelReason = "too-much" | "cost" | "different" | "no-results" | "other";
 
@@ -76,11 +79,10 @@ export function nextChargeValues({ nextChargeAt, nextChargeTotalCents }: Pick<Su
 }
 
 /** A longer interval moves the charge out by the difference; a shorter one keeps it. Going back restores the original date. */
-export function frequencyChange({ nextChargeAt, intervalDays }: FrequencyBase, days: number): SubscriptionChange {
-  return {
-    kind: "frequency",
-    patch: { intervalDays: days, nextChargeAt: nextChargeAt && addDays(nextChargeAt, Math.max(days - intervalDays, 0)) },
-  };
+export function frequencyChange({ nextChargeAt, intervalDays, minChargeAt }: FrequencyBase, days: number): SubscriptionChange {
+  const moved = nextChargeAt && addDays(nextChargeAt, Math.max(days - intervalDays, 0));
+  const tooEarly = moved && minChargeAt && Date.parse(moved) < Date.parse(minChargeAt);
+  return { kind: "frequency", patch: { intervalDays: days, nextChargeAt: tooEarly ? minChargeAt : moved } };
 }
 
 /** `quantities` holds new quantities by SKU; items it doesn't list stay as they are. */

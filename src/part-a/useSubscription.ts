@@ -12,6 +12,7 @@ const simulatedLatency = () => new Promise((resolve) => setTimeout(resolve, 400 
 export function useSubscription() {
   const [server, setServer] = useState<Subscription | null>(null);
   const [changes, setChanges] = useState<LocalChange[]>([]);
+  const [minChargeAt, setMinChargeAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [failedLoads, setFailedLoads] = useState(0);
@@ -33,7 +34,7 @@ export function useSubscription() {
   }, [loadAttempt]);
 
   const subscription = server && applyChanges(server, changes);
-  const frequencyBase = server && applyChanges(server, changes.filter(({ kind }) => kind !== "frequency"));
+  const frequencyBase = server && { ...applyChanges(server, changes.filter(({ kind }) => kind !== "frequency")), minChargeAt };
 
   function retryLoad() {
     setLoadError(null);
@@ -43,6 +44,7 @@ export function useSubscription() {
   async function refresh() {
     const fresh = await getSubscription();
     const { kept, dropped } = reconcileChanges(changes, fresh);
+    if (fresh.nextChargeAt !== server?.nextChargeAt) setMinChargeAt(null);
     setServer(fresh);
     setChanges(kept);
     return { subscription: applyChanges(fresh, kept), droppedChanges: dropped };
@@ -55,19 +57,25 @@ export function useSubscription() {
     // A subscription resumed or restarted locally is still paused or cancelled on the server.
     if (server.status !== "active") {
       await simulatedLatency();
+      const updated = applyChanges(server, moved);
       setChanges(moved);
-      return applyChanges(server, moved);
+      setMinChargeAt(updated.nextChargeAt);
+      return updated;
     }
 
     const updated = await skipNextShipment({ subscriptionId: server.id, expectedUpdatedAt: server.updatedAt });
     const rebased = rebaseChanges(moved, updated);
     setServer(updated);
+    const result = applyChanges(updated, rebased);
     setChanges(rebased);
-    return applyChanges(updated, rebased);
+    setMinChargeAt(result.nextChargeAt);
+    return result;
   }
 
   function applyChange(change: SubscriptionChange) {
     if (server) setChanges((current) => recordChange(current, change, server));
+    // Cancelling, resuming and restarting replace the date the skip set.
+    if (change.kind !== "frequency" && change.kind !== "products") setMinChargeAt(null);
   }
 
   return { subscription, frequencyBase, loadError, failedLoads, retryLoad, refresh, skip, applyChange };
